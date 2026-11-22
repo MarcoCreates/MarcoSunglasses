@@ -16,7 +16,7 @@ export const TIERS = {
   standard: { name: "Standard", desc: "Nylon PA12 im SLS-Druck. Robust und leicht flexibel, so werden auch kommerzielle 3D-Brillen gedruckt.", minRim: 2.5, tag: "Empfehlung" },
   premium:  { name: "Premium",  desc: "Nylon PA12 SLS, eingefärbt und geglättet, plus Metallscharniere (separat gekauft).", minRim: 2.5 }
 };
-export const SHAPES = { wayfarer: "Wayfarer", round: "Rund", clubmaster: "Clubmaster", rect: "Rechteckig", aviator: "Aviator", oversize: "Oversize" };
+export const SHAPES = { wayfarer: "Trapez", round: "Rund", clubmaster: "Browline", rect: "Rechteckig", aviator: "Pilot", oversize: "Oversize" };
 export const FACE_SHAPES = { oval: "Oval", rund: "Rund", eckig: "Eckig", herz: "Herzförmig", laenglich: "Länglich" };
 
 const FACE_PREF = {

@@ -17,7 +17,7 @@ export const FINISHES = { gloss: "Glänzend", matte: "Matt", havana: "Havanna (S
 export const LENSES = {
   grey:         { name: "Grau",              color: "#25282b", op: 0.84 },
   brown:        { name: "Braun",             color: "#4a2c18", op: 0.82 },
-  g15:          { name: "G15 Grün",          color: "#2c3a28", op: 0.84 },
+  g15:          { name: "Grün klassisch",    color: "#2c3a28", op: 0.84 },
   gradient:     { name: "Verlauf Grau",      color: "#25282b", op: 0.9, grad: true },
   mirrorBlue:   { name: "Verspiegelt Blau",  color: "#2f74ff", mirror: true },
   mirrorGold:   { name: "Verspiegelt Gold",  color: "#e0a526", mirror: true },
@@ -136,6 +136,19 @@ export function lensMaterial(style) {
 }
 const metal = () => new THREE.MeshStandardMaterial({ color: "#dcdfe4", metalness: 1, roughness: 0.22 });
 
+let engMat = null, engAspect = 4;
+function engraving() {
+  if (engMat || typeof document === "undefined") return engMat;
+  const font = "600 44px -apple-system, Helvetica, Arial, sans-serif";
+  const c = document.createElement("canvas"), x = c.getContext("2d");
+  x.font = font; const tw = Math.ceil(x.measureText("marco.").width);
+  c.width = tw + 12; c.height = 56; engAspect = c.width / c.height;
+  x.font = font; x.fillStyle = "#ecd08c"; x.textBaseline = "middle"; x.fillText("marco.", 6, 30);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  engMat = new THREE.MeshStandardMaterial({ map: t, transparent: true, metalness: 0.5, roughness: 0.3, emissive: "#6b5420", emissiveMap: t, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+  return engMat;
+}
+
 // ---------- Brille ----------
 // g: Ergebnis von sizeGlasses, shape: Form, style: {color, finish, lens}
 // Liefert die Darstellung (root), den Gesichtsschatten (shadow) und die druckbaren Teile (exp).
@@ -175,6 +188,13 @@ export function buildGlasses(g, shape, style) {
     return grp;
   };
   root.add(front, lenses, temple(-1), temple(1));
+  // Gravur «marco.» aussen auf beiden Bügeln (nur Darstellung)
+  const eng = engraving();
+  if (eng) for (const side of [-1, 1]) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(3.6 * engAspect, 3.6), eng);
+    m.rotation.y = side * Math.PI / 2; m.position.set(side * (half + 0.03), yh, Z0 - 24);
+    root.add(m);
+  }
 
   // --- Weicher Schatten auf dem Gesicht (nur Anprobe) ---
   const shadow = new THREE.Group();

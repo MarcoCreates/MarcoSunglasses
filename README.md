@@ -1,4 +1,4 @@
-# Sonnenbrillen-Designer V2
+# marco. – Sonnenbrillen-Designer
 
 Web-App: Look wählen, Gesicht mit der Kamera scannen, Gesichtsform erkennen, perfekte Brille vorschlagen, live anprobieren und Druckdateien (STL) herunterladen.
 

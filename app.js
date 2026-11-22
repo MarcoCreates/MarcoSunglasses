@@ -299,12 +299,12 @@ $("dl").onclick = async () => {
     zip.file("brille_front.stl", ex.parse(pre.front));
     zip.file("brille_buegel_links.stl", ex.parse(pre.tL));
     zip.file("brille_buegel_rechts.stl", ex.parse(pre.tR));
-    zip.file("masse.txt", [`Sonnenbrillen-Designer V2`, `Look: ${A.LOOKS[st.look].name}`, `Material: ${A.TIERS[st.tier].name}`, `Form: ${A.SHAPES[st.shape]}`,
+    zip.file("masse.txt", [`marco. Sonnenbrille`, `Grösse: ${sz.lensW.toFixed(0)}□${sz.bridge.toFixed(0)}-${sz.templeLen}`, `Look: ${A.LOOKS[st.look].name}`, `Material: ${A.TIERS[st.tier].name}`, `Form: ${A.SHAPES[st.shape]}`,
       `Augenabstand: ${m.pd.toFixed(1)} mm`, `Rahmenbreite: ${sz.frameW.toFixed(1)} mm`, `Steg: ${sz.bridge.toFixed(1)} mm`, `Glasbreite: ${sz.lensW.toFixed(1)} mm`,
       `Glashoehe: ${sz.lensH.toFixed(1)} mm`, `Rahmendicke: ${sz.rim.toFixed(1)} mm`, `Buegellaenge: ${sz.templeLen} mm`, `Einheit der STL-Dateien: Millimeter`,
       `Hinweis: Testdruck. Die Glaskontur ist eine Standardform.`].join("\n"));
     const blob = await zip.generateAsync({ type: "blob" });
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `sonnenbrille_${st.shape}.zip`; document.body.appendChild(a); a.click(); a.remove();
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `marco_sonnenbrille_${A.SHAPES[st.shape].toLowerCase()}.zip`; document.body.appendChild(a); a.click(); a.remove();
     $("dlmsg").textContent = "✅ Download gestartet.";
   } catch (e) { $("dlmsg").textContent = "Download nicht möglich: " + e.message; }
 };
