@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sonnenbrillen-Designer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<style>
+:root{--bg:#f6f4f0;--card:#fff;--ink:#1c1d21;--mute:#6b6f78;--line:#e4e0d8;--acc:#111827;--acc2:#d97706;--ok:#15803d;--warn:#b45309}
+@media (prefers-color-scheme:dark){:root{--bg:#141518;--card:#1d1f24;--ink:#eceef1;--mute:#9aa0aa;--line:#2d3038;--acc:#f3f4f6;--acc2:#f59e0b;--ok:#4ade80;--warn:#fbbf24}}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+.wrap{max-width:1000px;margin:auto;padding:18px}
+h1{font-size:22px;margin:0 0 2px}.sub{color:var(--mute);font-size:14px}
+.steps{display:flex;gap:6px;margin:16px 0;flex-wrap:wrap}
+.steps span{font-size:12px;padding:6px 10px;border-radius:99px;border:1px solid var(--line);color:var(--mute);background:var(--card)}
+.steps span.on{background:var(--acc);color:var(--bg);border-color:var(--acc)}.steps span.done{color:var(--ok);border-color:var(--ok)}
+section{display:none}section.on{display:block}
+h2{font-size:19px;margin:6px 0 12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.opt{background:var(--card);border:2px solid var(--line);border-radius:14px;padding:16px;cursor:pointer;text-align:left;color:var(--ink);font:inherit}
+.opt:hover{border-color:var(--mute)}.opt.sel{border-color:var(--acc2)}
+.opt b{display:block;font-size:17px;margin-bottom:4px}.opt small{color:var(--mute);font-size:13px;line-height:1.4;display:block}
+.tag{display:inline-block;font-size:11px;background:var(--acc2);color:#fff;border-radius:99px;padding:2px 8px;margin-top:6px}
+.nav{display:flex;justify-content:space-between;margin-top:18px;gap:10px}
+.btn{border:none;border-radius:12px;padding:12px 18px;font-size:15px;cursor:pointer;background:var(--line);color:var(--ink);font-family:inherit;display:inline-block}
+.btn.p{background:var(--acc);color:var(--bg)}.btn:disabled{opacity:.4;cursor:default}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px}
+.hint{font-size:13px;color:var(--mute);line-height:1.5}
+.status{font-size:16px;font-weight:600;margin:10px 0;color:var(--acc2);min-height:22px}
+.stage{position:relative;width:100%;max-width:720px;border-radius:14px;overflow:hidden;background:#000;margin:auto}
+.stage video,.stage img{display:block;width:100%;height:auto}
+.stage canvas{position:absolute;inset:0;width:100%!important;height:100%!important;pointer-events:none}
+.stage.mirror video,.stage.mirror canvas{transform:scaleX(-1)}
+.stage .placeholder{color:#aaa;padding:80px 20px;text-align:center;font-size:15px}
+.bars{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.bars div{font-size:12px;color:var(--mute)}.bar{height:8px;background:var(--line);border-radius:99px;overflow:hidden;margin-top:4px}.bar i{display:block;height:100%;width:0;background:var(--ok);transition:width .2s}
+#view3d{width:100%;height:420px;border-radius:14px;background:linear-gradient(#e9e6df,#d7d2c8)}
+@media (prefers-color-scheme:dark){#view3d{background:linear-gradient(#2a2d34,#1a1c20)}}
+.two{display:grid;grid-template-columns:1.35fr 1fr;gap:14px}@media(max-width:800px){.two{grid-template-columns:1fr}}
+.tabs{display:flex;gap:6px;margin-bottom:8px}
+.tabs button,.chips button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;padding:7px 12px;cursor:pointer;font-size:14px;font-family:inherit}
+.tabs button.sel,.chips button.sel{background:var(--acc2);border-color:var(--acc2);color:#fff}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+table{width:100%;border-collapse:collapse;font-size:14px}td{padding:6px 2px;border-bottom:1px solid var(--line)}td:last-child{text-align:right;font-weight:600}
+.warn{color:var(--warn);font-size:13px;margin-top:6px}.ok{color:var(--ok);font-size:13px;margin-top:6px}
+.meas{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.meas label{font-size:12px;color:var(--mute)}
+.meas input{width:100%;padding:8px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:14px;margin-top:2px}
+.ctrl label{font-size:13px;color:var(--mute);display:block;margin-top:8px}.ctrl input[type=range]{width:100%}
+select{padding:7px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:14px}
+.big{font-size:22px;font-weight:700;margin:4px 0}
+ul{padding-left:18px;margin:6px 0}li{margin:4px 0;font-size:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🕶️ Sonnenbrillen-Designer</h1>
+  <div class="sub">Look wählen → Gesicht scannen → perfekte Brille → live anprobieren → Druckdateien</div>
+  <div class="steps" id="steps"></div>
+
+  <section id="s0">
+    <h2>1. Welcher Look?</h2>
+    <div class="grid" id="looks"></div>
+    <div class="nav"><span></span><button class="btn p" id="n0" disabled>Weiter</button></div>
+  </section>
+
+  <section id="s1">
+    <h2>2. Material und Preisklasse</h2>
+    <div class="grid" id="tiers"></div>
+    <p class="hint">Gedruckt wird über einen Druckservice. Den genauen Preis zeigt der Service beim Hochladen der Datei. Die Gläser kaufst du separat: zertifiziert mit UV400, CE, Kategorie 2–3.</p>
+    <div class="nav"><button class="btn" data-back>Zurück</button><button class="btn p" id="n1" disabled>Weiter</button></div>
+  </section>
+
+  <section id="s2">
+    <h2>3. Gesicht scannen</h2>
+    <div class="card">
+      <div class="stage mirror" id="scanStage">
+        <div class="placeholder" id="ph">Kamera ist aus. Tippe auf «Kamera starten».</div>
+        <video id="video" playsinline muted autoplay style="display:none"></video>
+        <img id="still" alt="" style="display:none">
+        <canvas id="dots"></canvas>
+      </div>
+      <div class="status" id="status"></div>
+      <div class="bars">
+        <div>Gerade schauen<div class="bar"><i id="b0"></i></div></div>
+        <div>Kopf zur einen Seite<div class="bar"><i id="b1"></i></div></div>
+        <div>Kopf zur anderen Seite<div class="bar"><i id="b2"></i></div></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        <button class="btn p" id="cam">Kamera starten</button>
+        <button class="btn" id="rescan" style="display:none">Neu scannen</button>
+        <label class="btn" for="photo">Stattdessen Foto hochladen</label>
+        <input type="file" id="photo" accept="image/*" style="display:none">
+      </div>
+      <p class="hint">🔒 Alles läuft in deinem Browser. Kamerabild und Fotos werden nicht hochgeladen oder gespeichert. Tipps: gutes Licht von vorne, Haare hinter die Ohren, Brille abnehmen, Kamera auf Augenhöhe.</p>
+    </div>
+    <div class="card" id="scanRes" style="display:none"></div>
+    <div class="nav"><button class="btn" data-back>Zurück</button><button class="btn p" id="n2" disabled>Meine Brille ansehen</button></div>
+  </section>
+
+  <section id="s3">
+    <h2>4. Deine Brille</h2>
+    <div class="two">
+      <div>
+        <div class="tabs"><button data-v="try" class="sel">Live-Anprobe</button><button data-v="3d">3D-Ansicht</button></div>
+        <div class="stage mirror" id="tryStage"></div>
+        <div id="view3d" style="display:none"></div>
+        <p class="hint" id="viewHint">Bewege den Kopf. Die Brille folgt dir in echter Grösse.</p>
+      </div>
+      <div>
+        <div class="card" id="faceCard"></div>
+        <div class="card" id="recCard"></div>
+        <div class="card ctrl">
+          <b>Anpassen</b>
+          <label>Rahmendicke: <span id="rv"></span> mm <a href="#" id="rimAuto" class="hint">(automatisch)</a><input type="range" id="rim" min="2.5" max="8" step="0.1"></label>
+          <label>Rahmenfarbe <input type="color" id="col"></label>
+          <label>Glastönung (nur Vorschau) <input type="color" id="tint"></label>
+        </div>
+      </div>
+    </div>
+    <div class="two">
+      <div class="card"><b>Masse</b> <span class="hint">(gemessen, bei Bedarf korrigieren)</span>
+        <div class="meas">
+          <label>Augenabstand (mm)<input type="number" id="o_pd" step="0.5"></label>
+          <label>Rahmenbreite (mm)<input type="number" id="o_fw" step="0.5"></label>
+          <label>Steg / Nasenbrücke (mm)<input type="number" id="o_br" step="0.5"></label>
+          <label>Bügellänge (mm)<input type="number" id="o_tl" step="1"></label>
+        </div>
+        <p class="hint">Kontrolliere den Augenabstand einmal mit einem Lineal vor dem Spiegel. Die Bügellänge ist geschätzt, üblich sind 135–145 mm.</p>
+      </div>
+      <div class="card"><b>Passform</b><table id="fit"></table><div id="fitmsg"></div></div>
+    </div>
+    <div class="card">
+      <b>Druckdateien</b>
+      <p class="hint">ZIP mit drei STL-Dateien (Front, Bügel links, Bügel rechts) und deinen Massen. Die Front hat eine Nut, in die die Gläser einrasten.</p>
+      <button class="btn p" id="dl">Druckdateien herunterladen (ZIP)</button>
+      <div id="dlmsg" class="hint" style="margin-top:6px"></div>
+    </div>
+    <div class="card">
+      <b>Ehrlicher Stand von Version 2</b>
+      <ul>
+        <li>Die <b>Gesichtsform</b> wird nach Faustregeln aus der Optikerpraxis bestimmt (Kontrastprinzip). Das ist keine exakte Wissenschaft. Wenn es nicht stimmt, wähle sie selbst.</li>
+        <li>Der <b>Massstab</b> kommt von der Iris (ca. 11.7 mm), Genauigkeit etwa ±1–2 mm.</li>
+        <li>Die Glaskonturen sind <b>Standardformen</b>. Für echte Gläser lesen wir deren Kontur ein (V3), sonst passen sie nicht in die Nut.</li>
+        <li>Front flach, noch <b>ohne Scharniere</b> (V3). Erst ein Testdruck in günstigem Material.</li>
+      </ul>
+    </div>
+    <div class="nav"><button class="btn" data-back>Zurück</button><span></span></div>
+  </section>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
