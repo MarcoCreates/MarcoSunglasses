@@ -36,8 +36,8 @@ h2{font-size:19px;margin:6px 0 12px}
 .stage .placeholder{color:#aaa;padding:80px 20px;text-align:center;font-size:15px}
 .bars{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
 .bars div{font-size:12px;color:var(--mute)}.bar{height:8px;background:var(--line);border-radius:99px;overflow:hidden;margin-top:4px}.bar i{display:block;height:100%;width:0;background:var(--ok);transition:width .2s}
-#view3d{width:100%;height:420px;border-radius:14px;background:linear-gradient(#e9e6df,#d7d2c8)}
-@media (prefers-color-scheme:dark){#view3d{background:linear-gradient(#2a2d34,#1a1c20)}}
+#view3d{width:100%;height:420px;border-radius:14px;background:radial-gradient(ellipse at 50% 35%,#ffffff,#e4e0d8 60%,#cfc9bd)}
+@media (prefers-color-scheme:dark){#view3d{background:radial-gradient(ellipse at 50% 35%,#3a3e46,#1f2126 65%,#141518)}}
 .two{display:grid;grid-template-columns:1.35fr 1fr;gap:14px}@media(max-width:800px){.two{grid-template-columns:1fr}}
 .tabs{display:flex;gap:6px;margin-bottom:8px}
 .tabs button,.chips button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;padding:7px 12px;cursor:pointer;font-size:14px;font-family:inherit}
@@ -115,8 +115,9 @@ ul{padding-left:18px;margin:6px 0}li{margin:4px 0;font-size:14px}
         <div class="card ctrl">
           <b>Anpassen</b>
           <label>Rahmendicke: <span id="rv"></span> mm <a href="#" id="rimAuto" class="hint">(automatisch)</a><input type="range" id="rim" min="2.5" max="8" step="0.1"></label>
-          <label>Rahmenfarbe <input type="color" id="col"></label>
-          <label>Glastönung (nur Vorschau) <input type="color" id="tint"></label>
+          <label>Oberfläche <select id="finish"></select></label>
+          <label id="colWrap">Rahmenfarbe <input type="color" id="col"></label>
+          <label>Gläser <select id="lens"></select></label>
         </div>
       </div>
     </div>

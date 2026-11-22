@@ -3,7 +3,10 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { STLExporter } from "three/addons/exporters/STLExporter.js";
 import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.2.3/vision_bundle.mjs";
 import * as A from "./analysis.js";
-import { buildGlasses, headOccluder, aspectOf, disposeGroup } from "./glasses.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { buildGlasses, headOccluder, groundShadow, aspectOf, disposeGroup, FINISHES, LENSES } from "./glasses.js";
+
+const LOOK_STYLE = { casual: { finish: "gloss", lens: "grey" }, business: { finish: "havana", lens: "brown" }, festival: { finish: "gloss", lens: "mirrorBlue" } };
 
 const WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.2.3/wasm";
 const MODEL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
@@ -12,7 +15,7 @@ const NEED = 45; // gerade Bilder für die Messung
 
 const $ = id => document.getElementById(id);
 const st = { step: 0, look: null, tier: null, m: null, face: null, faceOverride: "", shape: null, shapeUser: false,
-  rim: 4.5, rimUser: false, color: "#1f1f1f", tint: "#3a3a3a", source: null, img: null, staticP: null, view: "try", ov: {} };
+  rim: 4.5, rimUser: false, color: "#1f1f1f", finish: "gloss", lens: "grey", source: null, img: null, staticP: null, view: "try", ov: {} };
 
 // ---------- Navigation ----------
 function go(n) {
@@ -27,7 +30,7 @@ document.querySelectorAll("[data-back]").forEach(b => b.onclick = () => go(st.st
 
 $("looks").innerHTML = Object.entries(A.LOOKS).map(([k, l]) => `<button class="opt" data-k="${k}"><b>${l.name}</b><small>${l.desc}<br>Typische Formen: ${l.shapes.map(s => A.SHAPES[s]).join(", ")}</small></button>`).join("");
 $("looks").onclick = e => { const b = e.target.closest(".opt"); if (!b) return; st.look = b.dataset.k; const L = A.LOOKS[st.look];
-  st.color = L.color; st.tint = L.tint; st.shapeUser = false; st.rimUser = false;
+  st.color = L.color; st.finish = LOOK_STYLE[st.look].finish; st.lens = LOOK_STYLE[st.look].lens; st.shapeUser = false; st.rimUser = false;
   document.querySelectorAll("#looks .opt").forEach(x => x.classList.toggle("sel", x === b)); $("n0").disabled = false; };
 $("n0").onclick = () => go(1);
 $("tiers").innerHTML = Object.entries(A.TIERS).map(([k, t]) => `<button class="opt" data-k="${k}"><b>${t.name}</b><small>${t.desc}</small>${t.tag ? `<span class="tag">${t.tag}</span>` : ""}</button>`).join("");
@@ -176,7 +179,15 @@ function sizes() { return A.sizeGlasses(measures(), st.shape, st.look, st.tier, 
 function initRenderer() {
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(2, devicePixelRatio));
-  const lights = s => { s.add(new THREE.HemisphereLight(0xffffff, 0x666666, 1.6)); const d = new THREE.DirectionalLight(0xffffff, 1.5); d.position.set(80, 120, 300); s.add(d); };
+  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  const env = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture; // Studio-Reflexe
+  const lights = s => {
+    s.environment = env;
+    s.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.5));
+    const key = new THREE.DirectionalLight(0xffffff, 1.4); key.position.set(120, 180, 260); s.add(key);
+    const rimL = new THREE.DirectionalLight(0xffffff, 0.6); rimL.position.set(-200, 60, -120); s.add(rimL);
+  };
   tryScene = new THREE.Scene(); lights(tryScene);
   tryCam = new THREE.OrthographicCamera(-1, 1, 1, -1, -5000, 5000);
   preScene = new THREE.Scene(); lights(preScene);
@@ -203,13 +214,15 @@ document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => setView
 
 function rebuild() {
   for (const g of [gTry, gPre]) { while (g.children.length) { const c = g.children.pop(); disposeGroup(c); } }
-  const sz = sizes(), style = { color: st.color, tint: st.tint };
-  gTry.add(buildGlasses(sz, st.shape, style).root);
+  const sz = sizes(), style = { color: st.color, finish: st.finish, lens: st.lens };
+  const tr = buildGlasses(sz, st.shape, style);
+  gTry.add(tr.shadow, tr.root);
   occ = headOccluder(measures().cheek); gTry.add(occ);
-  const pre = buildGlasses(sz, st.shape, style); gPre.add(pre.root); gPre.userData = pre;
+  const pre = buildGlasses(sz, st.shape, style); gPre.add(pre.root, groundShadow()); gPre.userData = pre;
   if (!st.rimUser) st.rim = sz.rim;
   $("rim").value = st.rim; $("rv").textContent = st.rim.toFixed(1);
-  $("col").value = st.color; $("tint").value = st.tint;
+  $("col").value = st.color; $("finish").value = st.finish; $("lens").value = st.lens;
+  $("colWrap").style.display = st.finish === "havana" ? "none" : "block";
   fitInfo(sz);
 }
 
@@ -231,7 +244,10 @@ function panels() {
 $("rim").oninput = e => { st.rim = +e.target.value; st.rimUser = true; rebuild(); };
 $("rimAuto").onclick = e => { e.preventDefault(); st.rimUser = false; rebuild(); };
 $("col").oninput = e => { st.color = e.target.value; rebuild(); };
-$("tint").oninput = e => { st.tint = e.target.value; rebuild(); };
+$("finish").innerHTML = Object.entries(FINISHES).map(([k, n]) => `<option value="${k}">${n}</option>`).join("");
+$("lens").innerHTML = Object.entries(LENSES).map(([k, l]) => `<option value="${k}">${l.name}</option>`).join("");
+$("finish").onchange = e => { st.finish = e.target.value; rebuild(); };
+$("lens").onchange = e => { st.lens = e.target.value; rebuild(); };
 
 function fitInfo(sz) {
   const m = measures(), diff = (sz.framePD - m.pd) / 2;
@@ -278,7 +294,7 @@ function renderResult() {
 $("dl").onclick = async () => {
   try {
     $("dlmsg").textContent = "Erstelle Dateien …";
-    const pre = gPre.userData; gPre.updateMatrixWorld(true);
+    const pre = gPre.userData.exp; [pre.front, pre.tL, pre.tR].forEach(g => g.updateMatrixWorld(true));
     const ex = new STLExporter(), sz = sizes(), m = measures(), zip = new JSZip();
     zip.file("brille_front.stl", ex.parse(pre.front));
     zip.file("brille_buegel_links.stl", ex.parse(pre.tL));
