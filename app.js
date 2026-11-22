@@ -3,7 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { STLExporter } from "three/addons/exporters/STLExporter.js";
 import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.2.3/vision_bundle.mjs";
 import * as A from "./analysis.js";
-import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { makeEnvs, makeRig, applyLight, applyBackground, BACKGROUNDS, faceTriangles, makeFaceOccluder, updateFaceOccluder, makeLightProbe, sampleLight, applyProbe } from "./scene.js";
 import { buildGlasses, headOccluder, groundShadow, aspectOf, disposeGroup, FINISHES, LENSES } from "./glasses.js";
 
 const LOOK_STYLE = { casual: { finish: "gloss", lens: "grey" }, business: { finish: "havana", lens: "brown" }, festival: { finish: "gloss", lens: "mirrorBlue" } };
@@ -15,7 +15,7 @@ const NEED = 45; // gerade Bilder für die Messung
 
 const $ = id => document.getElementById(id);
 const st = { step: 0, look: null, tier: null, m: null, face: null, faceOverride: "", shape: null, shapeUser: false,
-  rim: 4.5, rimUser: false, color: "#1f1f1f", finish: "gloss", lens: "grey", source: null, img: null, staticP: null, view: "try", ov: {} };
+  rim: 4.5, rimUser: false, color: "#1f1f1f", finish: "gloss", lens: "grey", bg: "white", bgColor: "#e6dfd2", light: "studio", source: null, img: null, staticP: null, view: "try", ov: {} };
 
 // ---------- Navigation ----------
 function go(n) {
@@ -163,7 +163,7 @@ function loop() {
 }
 
 // ---------- Ergebnis: 3D und Anprobe ----------
-let renderer, tryScene, tryCam, preScene, preCam, controls, gTry, gPre, occ;
+let renderer, tryScene, tryCam, preScene, preCam, controls, gTry, gPre, occ, envs, tryRig, preRig, faceOcc, probe;
 const smooth = { pos: new THREE.Vector3(), quat: new THREE.Quaternion(), scale: 0, init: false };
 
 function measures() {
@@ -181,16 +181,13 @@ function initRenderer() {
   renderer.setPixelRatio(Math.min(2, devicePixelRatio));
   renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  const env = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture; // Studio-Reflexe
-  const lights = s => {
-    s.environment = env;
-    s.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.5));
-    const key = new THREE.DirectionalLight(0xffffff, 1.4); key.position.set(120, 180, 260); s.add(key);
-    const rimL = new THREE.DirectionalLight(0xffffff, 0.6); rimL.position.set(-200, 60, -120); s.add(rimL);
-  };
-  tryScene = new THREE.Scene(); lights(tryScene);
+  envs = makeEnvs(renderer);
+  tryScene = new THREE.Scene(); tryRig = makeRig(); tryScene.add(tryRig.g); tryScene.environment = envs.studio;
   tryCam = new THREE.OrthographicCamera(-1, 1, 1, -1, -5000, 5000);
-  preScene = new THREE.Scene(); lights(preScene);
+  faceOcc = makeFaceOccluder(faceTriangles(FaceLandmarker.FACE_LANDMARKS_TESSELATION)); tryScene.add(faceOcc);
+  probe = makeLightProbe();
+  preScene = new THREE.Scene(); preRig = makeRig(); preScene.add(preRig.g);
+  apply3dLook();
   preCam = new THREE.PerspectiveCamera(35, 1, 1, 3000); preCam.position.set(110, 50, 260);
   controls = new OrbitControls(preCam, renderer.domElement); controls.target.set(0, 0, -40); controls.enableDamping = true;
   gTry = new THREE.Group(); gPre = new THREE.Group(); tryScene.add(gTry); preScene.add(gPre);
@@ -207,6 +204,7 @@ function setView(v) {
   $("tryStage").style.display = v === "try" ? "block" : "none";
   $("view3d").style.display = v === "3d" ? "block" : "none";
   (v === "try" ? $("tryStage") : $("view3d")).appendChild(renderer.domElement);
+  $("view3dCtrl").style.display = v === "3d" ? "flex" : "none";
   $("viewHint").textContent = v === "try" ? (st.source === "video" ? "Bewege den Kopf. Die Brille folgt dir in echter Grösse." : "Anprobe auf deinem Foto.") : "Drehen: ziehen · Zoomen: scrollen bzw. zwei Finger";
   smooth.init = false;
 }
@@ -215,7 +213,7 @@ document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => setView
 function rebuild() {
   for (const g of [gTry, gPre]) { while (g.children.length) { const c = g.children.pop(); disposeGroup(c); } }
   const sz = sizes(), style = { color: st.color, finish: st.finish, lens: st.lens };
-  const tr = buildGlasses(sz, st.shape, style);
+  const tr = buildGlasses(sz, st.shape, style, { tryOn: true });
   gTry.add(tr.shadow, tr.root);
   occ = headOccluder(measures().cheek); gTry.add(occ);
   const pre = buildGlasses(sz, st.shape, style); gPre.add(pre.root, groundShadow()); gPre.userData = pre;
@@ -247,6 +245,15 @@ $("col").oninput = e => { st.color = e.target.value; rebuild(); };
 $("finish").innerHTML = Object.entries(FINISHES).map(([k, n]) => `<option value="${k}">${n}</option>`).join("");
 $("lens").innerHTML = Object.entries(LENSES).map(([k, l]) => `<option value="${k}">${l.name}</option>`).join("");
 $("finish").onchange = e => { st.finish = e.target.value; rebuild(); };
+$("bgSel").innerHTML = Object.entries(BACKGROUNDS).map(([k, n]) => `<option value="${k}">${n}</option>`).join("");
+function apply3dLook() {
+  applyLight(preScene, preRig, envs, st.light); applyBackground(preScene, st.bg, st.bgColor);
+  $("bgSel").value = st.bg; $("lightSel").value = st.light; $("bgCol").value = st.bgColor;
+  $("bgCol").style.display = st.bg === "custom" ? "inline-block" : "none";
+}
+$("bgSel").onchange = e => { st.bg = e.target.value; apply3dLook(); };
+$("bgCol").oninput = e => { st.bgColor = e.target.value; apply3dLook(); };
+$("lightSel").onchange = e => { st.light = e.target.value; apply3dLook(); };
 $("lens").onchange = e => { st.lens = e.target.value; rebuild(); };
 
 function fitInfo(sz) {
@@ -267,7 +274,7 @@ function renderResult() {
   if (st.view === "3d") {
     const v = $("view3d"), w = v.clientWidth, h = v.clientHeight;
     if (renderer.domElement.width !== Math.floor(w * renderer.getPixelRatio())) { renderer.setSize(w, h); preCam.aspect = w / h; preCam.updateProjectionMatrix(); }
-    controls.update(); renderer.render(preScene, preCam); return;
+    controls.update(); renderer.toneMappingExposure = 1.05; renderer.render(preScene, preCam); return;
   }
   const isVid = st.source === "video", W = isVid ? video.videoWidth : still.naturalWidth, H = isVid ? video.videoHeight : still.naturalHeight;
   if (!W) return;
@@ -286,7 +293,12 @@ function renderResult() {
     if (!smooth.init || !isVid) { smooth.pos.copy(pos); smooth.quat.copy(q); smooth.scale = sc; smooth.init = true; }
     else { smooth.pos.lerp(pos, 0.5); smooth.quat.slerp(q, 0.5); smooth.scale += (sc - smooth.scale) * 0.3; }
     gTry.position.copy(smooth.pos); gTry.quaternion.copy(smooth.quat); gTry.scale.setScalar(smooth.scale); gTry.visible = true;
-  } else gTry.visible = false;
+    // Gesicht als unsichtbare Verdeckung: 6 mm nach hinten versetzt, damit die Front nie verschwindet
+    updateFaceOccluder(faceOcc, P, W, H, 6 * sc); faceOcc.visible = true;
+  } else { gTry.visible = false; faceOcc.visible = false; }
+  // Licht an die Raumhelligkeit anpassen (alle 15 Bilder messen)
+  if (probe.n++ % 15 === 0) sampleLight(probe, isVid ? video : still);
+  renderer.toneMappingExposure = applyProbe(tryRig, probe);
   renderer.render(tryScene, tryCam);
 }
 
