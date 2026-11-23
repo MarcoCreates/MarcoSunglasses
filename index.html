@@ -43,6 +43,7 @@ h2{font-size:19px;margin:6px 0 12px}
 .two{display:grid;grid-template-columns:1.35fr 1fr;gap:14px}@media(max-width:800px){.two{grid-template-columns:1fr}}
 .tabs{display:flex;gap:6px;margin-bottom:8px}
 .tabs button,.chips button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;padding:7px 12px;cursor:pointer;font-size:14px;font-family:inherit}
+.shootbtn{margin-left:auto;background:var(--acc)!important;color:var(--bg)!important;border-color:var(--acc)!important;font-weight:600}
 .tabs button.sel,.chips button.sel{background:var(--acc2);border-color:var(--acc2);color:#fff}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 table{width:100%;border-collapse:collapse;font-size:14px}td{padding:6px 2px;border-bottom:1px solid var(--line)}td:last-child{text-align:right;font-weight:600}
@@ -106,7 +107,7 @@ ul{padding-left:18px;margin:6px 0}li{margin:4px 0;font-size:14px}
     <h2>4. Deine Brille</h2>
     <div class="two">
       <div>
-        <div class="tabs"><button data-v="try" class="sel">Live-Anprobe</button><button data-v="3d">3D-Ansicht</button></div>
+        <div class="tabs"><button data-v="try" class="sel">Live-Anprobe</button><button data-v="3d">3D-Ansicht</button><button id="shoot" class="shootbtn">📸 Modelfoto</button></div>
         <div class="stage mirror" id="tryStage"></div>
         <div id="view3d" style="display:none"></div>
         <div id="view3dCtrl" class="ctrl3d" style="display:none">
@@ -127,6 +128,18 @@ ul{padding-left:18px;margin:6px 0}li{margin:4px 0;font-size:14px}
           <label>Gläser <select id="lens"></select></label>
         </div>
       </div>
+    </div>
+    <div class="card" id="photoCard" style="display:none">
+      <b>📸 Dein Modelfoto</b>
+      <canvas id="photoOut" style="width:100%;max-width:440px;border-radius:12px;display:block;margin:10px auto"></canvas>
+      <p class="hint" style="margin:4px 0">Hintergrund</p><div class="chips" id="phBg"></div>
+      <p class="hint" style="margin:10px 0 4px">Look</p><div class="chips" id="phLook"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        <button class="btn p" id="phSave">Speichern</button><button class="btn" id="phShare">Teilen</button>
+        <label class="btn" for="phOwn">Eigenes Hintergrundfoto</label><input type="file" id="phOwn" accept="image/*" style="display:none">
+        <button class="btn" id="phClose">Schliessen</button>
+      </div>
+      <p class="hint" id="phMsg">Tipp: Gutes Licht von vorne macht das Foto viel besser. Für ein neues Foto einfach nochmals auf «📸 Modelfoto» tippen.</p>
     </div>
     <div class="two">
       <div class="card"><b>Masse</b> <span class="hint">(gemessen, bei Bedarf korrigieren)</span>

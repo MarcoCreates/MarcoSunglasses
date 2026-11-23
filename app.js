@@ -3,6 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { STLExporter } from "three/addons/exporters/STLExporter.js";
 import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.2.3/vision_bundle.mjs";
 import * as A from "./analysis.js";
+import * as PH from "./photo.js";
 import { makeEnvs, makeRig, applyLight, applyBackground, BACKGROUNDS, faceTriangles, makeFaceOccluder, updateFaceOccluder, makeLightProbe, sampleLight, applyProbe } from "./scene.js";
 import { buildGlasses, headOccluder, groundShadow, aspectOf, disposeGroup, FINISHES, LENSES } from "./glasses.js";
 
@@ -40,11 +41,11 @@ $("n1").onclick = () => go(2);
 $("n2").onclick = () => go(3);
 
 // ---------- Gesichtserkennung ----------
-let fl = null, flMode = null;
+let fl = null, flMode = null, fileset = null;
 async function getFL(mode) {
   if (!fl) {
     setStatus("Lade Gesichtserkennung … (beim ersten Mal ein paar Sekunden)");
-    const fs = await FilesetResolver.forVisionTasks(WASM);
+    const fs = fileset = await FilesetResolver.forVisionTasks(WASM);
     const opts = d => ({ baseOptions: { modelAssetPath: MODEL, delegate: d }, runningMode: mode, numFaces: 1 });
     try { fl = await FaceLandmarker.createFromOptions(fs, opts("GPU")); }
     catch (e) { fl = await FaceLandmarker.createFromOptions(fs, opts("CPU")); }
@@ -177,7 +178,7 @@ function measures() {
 function sizes() { return A.sizeGlasses(measures(), st.shape, st.look, st.tier, st.rimUser ? st.rim : undefined, aspectOf); }
 
 function initRenderer() {
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(2, devicePixelRatio));
   renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -205,6 +206,7 @@ function setView(v) {
   $("view3d").style.display = v === "3d" ? "block" : "none";
   (v === "try" ? $("tryStage") : $("view3d")).appendChild(renderer.domElement);
   $("view3dCtrl").style.display = v === "3d" ? "flex" : "none";
+  $("shoot").style.display = v === "try" ? "inline-block" : "none";
   $("viewHint").textContent = v === "try" ? (st.source === "video" ? "Bewege den Kopf. Die Brille folgt dir in echter Grösse." : "Anprobe auf deinem Foto.") : "Drehen: ziehen · Zoomen: scrollen bzw. zwei Finger";
   smooth.init = false;
 }
@@ -301,6 +303,58 @@ function renderResult() {
   renderer.toneMappingExposure = applyProbe(tryRig, probe);
   renderer.render(tryScene, tryCam);
 }
+
+// ---------- Fotomodus ----------
+let shot = null, ownBg = null, phBg = "studio", phLook = "natural", phCanvas = null;
+$("phBg").innerHTML = Object.entries(PH.PHOTO_BGS).map(([k, n]) => `<button data-k="${k}">${n}</button>`).join("") + `<button data-k="custom" id="phCustomBtn" style="display:none">Eigenes Foto</button>`;
+$("phLook").innerHTML = Object.entries(PH.PHOTO_LOOKS).map(([k, n]) => `<button data-k="${k}">${n}</button>`).join("");
+function paintPhoto() {
+  if (!shot) return;
+  phCanvas = PH.compose(shot, phBg, phLook, ownBg);
+  const o = $("photoOut"); o.width = PH.OW; o.height = PH.OH; o.getContext("2d").drawImage(phCanvas, 0, 0);
+  $("phBg").querySelectorAll("button").forEach(b => b.classList.toggle("sel", b.dataset.k === phBg));
+  $("phLook").querySelectorAll("button").forEach(b => b.classList.toggle("sel", b.dataset.k === phLook));
+}
+$("phBg").onclick = e => { const b = e.target.closest("button"); if (!b) return; phBg = b.dataset.k; paintPhoto(); };
+$("phLook").onclick = e => { const b = e.target.closest("button"); if (!b) return; phLook = b.dataset.k; paintPhoto(); };
+$("phOwn").onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const im = new Image(); im.src = URL.createObjectURL(f); await im.decode();
+  ownBg = im; phBg = "custom"; $("phCustomBtn").style.display = "inline-block"; paintPhoto();
+};
+$("shoot").onclick = async () => {
+  const isVid = st.source === "video", W = isVid ? video.videoWidth : still.naturalWidth, H = isVid ? video.videoHeight : still.naturalHeight;
+  const P = isVid ? curP : st.staticP;
+  if (!P || !W) { $("viewHint").textContent = "Kein Gesicht erkannt. Schau in die Kamera und versuch es nochmals."; return; }
+  $("shoot").disabled = true; $("shoot").textContent = "📸 Moment …";
+  try {
+    const frame = document.createElement("canvas"); frame.width = W; frame.height = H;
+    frame.getContext("2d").drawImage(isVid ? video : still, 0, 0, W, H);
+    // Brille in voller Kameraauflösung rendern
+    const pr = renderer.getPixelRatio(), size = renderer.getSize(new THREE.Vector2());
+    renderer.setPixelRatio(1); renderer.setSize(W, H, false); renderer.render(tryScene, tryCam);
+    const gl = document.createElement("canvas"); gl.width = W; gl.height = H; gl.getContext("2d").drawImage(renderer.domElement, 0, 0, W, H);
+    renderer.setPixelRatio(pr); renderer.setSize(size.x, size.y, false);
+    shot = await PH.prepare({ frame, glasses: gl, P: P.map(p => ({ ...p })), mirror: isVid }, fileset);
+    $("photoCard").style.display = "block"; paintPhoto();
+    $("photoCard").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (e) { $("viewHint").textContent = "Foto nicht möglich: " + e.message; }
+  $("shoot").disabled = false; $("shoot").textContent = "📸 Modelfoto";
+};
+function photoBlob() { return new Promise(r => phCanvas.toBlob(r, "image/jpeg", 0.92)); }
+$("phSave").onclick = async () => {
+  if (!phCanvas) return;
+  const blob = await photoBlob(), a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "marco_modelfoto.jpg"; document.body.appendChild(a); a.click(); a.remove();
+  $("phMsg").textContent = "✅ Gespeichert. Am iPhone: Foto lange drücken → «Zu Fotos hinzufügen».";
+};
+$("phShare").onclick = async () => {
+  if (!phCanvas) return;
+  const file = new File([await photoBlob()], "marco_modelfoto.jpg", { type: "image/jpeg" });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], title: "Meine marco. Sonnenbrille" }); } catch (e) {} }
+  else $("phMsg").textContent = "Teilen geht in diesem Browser nicht. Nutze «Speichern».";
+};
+$("phClose").onclick = () => { $("photoCard").style.display = "none"; };
 
 // ---------- Download ----------
 $("dl").onclick = async () => {
