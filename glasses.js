@@ -11,6 +11,7 @@ export const LENSES = {
   brown:        { name: "Braun",             color: "#4a2c18", op: 0.82 },
   g15:          { name: "Grün klassisch",    color: "#2c3a28", op: 0.84 },
   orange:       { name: "Orange getönt",     color: "#c8641c", op: 0.72 },
+  peach:        { name: "Pfirsich getönt",   color: "#d7a072", op: 0.55 },
   gradient:     { name: "Verlauf Grau",      color: "#25282b", op: 0.9, grad: true },
   mirrorBlue:   { name: "Verspiegelt Blau",  color: "#4b70b8", mirror: true },
   mirrorGold:   { name: "Verspiegelt Gold",  color: "#bf9a5a", mirror: true },
@@ -22,8 +23,10 @@ export const LENSES = {
 // trap = oben breiter, flat = Oberkante flacher, drop = Tropfen unten aussen, lift = Cat-Eye aussen oben.
 function implicitF(x, y, o, a, b) {
   const f = Math.pow(Math.pow(Math.abs(x) / a, o.n) + Math.pow(Math.abs(y) / b, o.n), 1 / o.n);
-  if (!o.chamfer) return f;
-  const g = (Math.abs(x) / a + Math.abs(y) / b) / (2 - o.chamfer * 1.2), k = 14;
+  // chamfer = alle vier Ecken abgeschrägt, chamferTop = nur die oberen
+  const ch = o.chamfer || (o.chamferTop && y > 0 ? o.chamferTop : 0);
+  if (!ch) return f;
+  const g = (Math.abs(x) / a + Math.abs(y) / b) / (2 - ch * 1.2), k = 14;
   return Math.pow(f ** k + g ** k, 1 / k);
 }
 function rawOutline(model, w) {
@@ -192,20 +195,23 @@ export function buildGlasses(g, model, style, opts = {}) {
   const outer = offsetVar(pts, rim);
   let oxMax = -Infinity, oyMax = -Infinity, oyMin = Infinity;
   outer.forEach(q => { oxMax = Math.max(oxMax, q[0]); oyMax = Math.max(oyMax, q[1]); oyMin = Math.min(oyMin, q[1]); });
-  const yTop = yc + oyMax, half = cx + oxMax + g.e;
+  // Oberkante des Rahmens innen (beim Steg) und aussen (bei der Backe)
+  let yIn = -Infinity, yOut = -Infinity;
+  outer.forEach(q => { if (q[0] < -g.lensW * 0.46) yIn = Math.max(yIn, q[1]); if (q[0] > g.lensW * 0.46) yOut = Math.max(yOut, q[1]); });
+  const yTop = yc + oyMax, yTopIn = yc + yIn - 0.3, yTopOut = yc + yOut - 0.3, half = cx + oxMax + g.e;
   const chunky = M.bridge === "solid";
   const endH = Math.max(7.5, M.temple.h + 2);
-  const yh = chunky ? yTop - endH / 2 : yc + g.lensH * 0.22;             // Höhe von Scharnier und Bügel
+  const yh = chunky ? yTopOut - endH / 2 : yc + g.lensH * 0.22;             // Höhe von Scharnier und Bügel
   const mat = frameMaterial(style, opts.tryOn), lmat = lensMaterial(style), mmat = metal();
   const Lb = 28, Ls = g.templeLen - Lb, Lv = opts.tryOn ? Math.min(Ls, g.templeLen - 45) : Ls;
-  const epX = side => side * (cx + oxMax + g.e / 2 - 1);
+  const epX = side => side * (cx + oxMax + g.e / 2 - 2); // Backe greift 3.5 mm in den Rahmen
 
   // Stege
   const bridges = (exportMode) => {
     const parts = [], bw = g.bridge + 2 * rim.side * 0.6;
     if (M.bridge === "solid") {
-      const bh = Math.max(6, rim.top * 1.2);
-      const b = new RoundedBoxGeometry(bw, bh, D, 4, 1.2); b.translate(0, yTop - bh / 2, Z0 + D / 2); parts.push(b);
+      const bh = Math.max(4.5, rim.top * 1.1);
+      const b = new RoundedBoxGeometry(bw, bh, D, 4, 1.2); b.translate(0, yTopIn - bh / 2, Z0 + D / 2); parts.push(b);
     } else if (M.bridge === "double") {
       const b1 = new RoundedBoxGeometry(bw + 6, 2.2, 2.4, 3, 0.9); b1.translate(0, yTop - 1.6, Z0 + D / 2); parts.push(b1);
       const b2 = new RoundedBoxGeometry(bw, 2.6, D * 0.8, 3, 1); b2.translate(0, yc + g.lensH * 0.18, Z0 + D / 2); parts.push(b2);
@@ -225,7 +231,7 @@ export function buildGlasses(g, model, style, opts = {}) {
   for (const side of [-1, 1]) {
     const rg = ring(pts, rim, -1.7, D, side, Math.min(1.1, rim.side * 0.25)); rg.translate(side * cx, yc, Z0); front.add(new THREE.Mesh(rg, mat));
     const lg = lensGeo(pts, 1.2, side); /* Glas vorne in der Nut wie bei echten Fassungen */ lg.translate(side * cx, yc, Z0 + D - 2.2); lenses.add(new THREE.Mesh(lg, lmat));
-    const ep = new RoundedBoxGeometry(g.e + 2, endH, D, 4, 1.4); ep.translate(epX(side), yh, Z0 + D / 2); front.add(new THREE.Mesh(ep, mat));
+    const ep = new RoundedBoxGeometry(g.e + 3, endH, D, 5, 1.9); ep.translate(epX(side), yh, Z0 + D / 2); front.add(new THREE.Mesh(ep, mat));
     if (M.pins) for (const dy of [-1.7, 1.7]) {
       const pin = new THREE.CylinderGeometry(0.75, 0.75, 0.5, 20); pin.rotateX(Math.PI / 2);
       pin.translate(side * (cx + oxMax - rim.side * 0.45), yh + dy, Z0 + D + 0.15); front.add(new THREE.Mesh(pin, mmat));
@@ -269,7 +275,7 @@ export function buildGlasses(g, model, style, opts = {}) {
     [[-0.9, D1, 0], [0.15, D2, D1], [-0.9, D1, D1 + D2]].forEach(([hole, dep, z]) => {
       const geo = ring(pts, rim, hole, dep, side); geo.translate(side * cx, yc, Z0 + z); pf.add(new THREE.Mesh(geo));
     });
-    const ep = new RoundedBoxGeometry(g.e + 2, endH, D, 4, 1.4); ep.translate(epX(side), yh, Z0 + D / 2); pf.add(new THREE.Mesh(ep));
+    const ep = new RoundedBoxGeometry(g.e + 3, endH, D, 5, 1.9); ep.translate(epX(side), yh, Z0 + D / 2); pf.add(new THREE.Mesh(ep));
   }
   bridges(true).forEach(b => pf.add(new THREE.Mesh(b)));
   const exp = { front: pf, tL: temple(-1, Ls, true), tR: temple(1, Ls, true) };
