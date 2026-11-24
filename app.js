@@ -103,7 +103,7 @@ $("photo").onchange = async e => {
 let scan;
 function scanReset() {
   earDbg = null;
-  scan = { front: [], ear: [], pitch: [], ears: [], earTries: 0, sA: false, sB: false, sidesAt: 0, done: false, n: 0 };
+  scan = { front: [], ear: [], pitch: [], ears: [], earDrops: [], earTries: 0, sA: false, sB: false, sidesAt: 0, done: false, n: 0 };
   st.shapeUser = false; $("n2").disabled = true; $("scanRes").style.display = "none"; $("rescan").style.display = "none"; $("cam").style.display = "none";
   updateBars();
 }
@@ -152,6 +152,7 @@ function scanFrame(P) {
     scan.done = true; const m = A.aggregate(scan.front, scan.ear);
     m.basePitch = [...scan.pitch].sort((a, b) => a - b)[scan.pitch.length >> 1];
     m.earLen = scan.ears.length >= 3 ? [...scan.ears].sort((a, b) => a - b)[scan.ears.length >> 1] : NaN;
+    m.earDrop = scan.earDrops.length >= 3 ? [...scan.earDrops].sort((a, b) => a - b)[scan.earDrops.length >> 1] : NaN;
     finishScan(m, "✅ Scan fertig!");
   }
 }
@@ -165,7 +166,7 @@ async function detectEar(P, yaw) {
     const seg = await PH.segmentConf(earCanvas, fileset);
     const lenMm = A.aggregate(scan.front).length;
     const r = findEar(P, yaw, x.getImageData(0, 0, W, H).data, W, H, seg, lenMm);
-    if (r) { scan.ears.push(r.L); earDbg = r; }
+    if (r) { scan.ears.push(r.L); scan.earDrops.push(r.drop); earDbg = r; }
   } catch (e) { /* Erkennung nicht verfügbar: Schätzung bleibt */ }
   earBusy = false;
 }

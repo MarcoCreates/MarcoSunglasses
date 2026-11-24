@@ -283,11 +283,18 @@ export function buildGlasses(g, model, style, opts = {}) {
     grp.add(new THREE.Mesh(tg, mat));
     return grp;
   };
+  // Nur die Front ist vorgeneigt. Die Bügel drehen sich im Scharnier nach unten zum Ohr.
+  const hz = Z0 - zShift, yR = yh * Math.cos(TILT) - hz * Math.sin(TILT), zR = yh * Math.sin(TILT) + hz * Math.cos(TILT);
+  const earDist = Math.max(70, g.templeLen - 42);                        // Scharnier bis Ohransatz
+  const drop = (Number.isFinite(g.earDrop) ? g.earDrop : 6) + yh;          // so viel tiefer liegt der Ohransatz
+  const dropAngle = Math.min(0.32, Math.max(0.05, Math.atan2(drop, earDist)));
+  const hinged = grp => { const pv = new THREE.Group(); pv.position.set(0, yR, zR); grp.position.set(0, -yh, -hz); pv.add(grp); pv.rotation.x = -dropAngle; return pv; };
   const tL = temple(-1, Lv, !opts.tryOn), tR = temple(1, Lv, !opts.tryOn);
-  root.add(front, lenses, tL, tR);
+  front.rotation.x = TILT; lenses.rotation.x = TILT;
+  root.add(front, lenses, hinged(tL), hinged(tR));
   for (const side of [-1, 1]) { // sichtbares Scharnier
     const hg = new THREE.CylinderGeometry(1.1, 1.1, Math.min(5.5, endH - 1.5), 20); hg.translate(side * (half - M.temple.w * 0.5), yh, Z0 - 1.2 - zShift);
-    root.add(new THREE.Mesh(hg, mmat));
+    front.add(new THREE.Mesh(hg, mmat));
   }
   // Gravur «marco.» aussen auf beiden Bügeln (nur Darstellung)
   const eng = engraving();
@@ -295,16 +302,16 @@ export function buildGlasses(g, model, style, opts = {}) {
     const hgt = Math.min(3.6, M.temple.h * 0.55);
     const m = new THREE.Mesh(new THREE.PlaneGeometry(hgt * engAspect, hgt), eng);
     m.rotation.y = side * Math.PI / 2; m.position.set(side * (half + 0.03), yh, Z0 - 24 - zShift);
-    root.add(m);
+    (side < 0 ? tL : tR).add(m);
   }
 
   // --- Weicher Schatten auf dem Gesicht (nur Anprobe) ---
   const shadow = new THREE.Group();
-  for (const side of [-1, 1]) for (const [o, op] of [[0.4, 0.13], [1.6, 0.08], [3, 0.05], [4.6, 0.03]]) {
+  for (const side of [-1, 1]) for (const [o, op] of [[0.3, 0.07], [1.2, 0.05], [2.4, 0.035], [3.8, 0.02]]) {
     const s = new THREE.Shape(toV(offsetVar(pts, { side: rim.side + o, top: rim.top + o, bottom: rim.bottom + o }), side));
     s.holes.push(new THREE.Path(toV(offset(pts, Math.max(-6, -0.9 - o * 0.6)), side)));
-    const sg = new THREE.ShapeGeometry(s); sg.translate(side * cx, yc - 2.2, 4); bend(sg);
-    shadow.add(new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: op, depthWrite: false })));
+    const sg = new THREE.ShapeGeometry(s); sg.translate(side * cx, yc - 1.4, Z0 - 2.5); bend(sg);
+    shadow.add(new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ color: 0x3a2416, transparent: true, opacity: op, depthWrite: false })));
   }
 
   // --- Druckteile: Front mit Nut für die Gläser, Bügel ---
@@ -316,7 +323,7 @@ export function buildGlasses(g, model, style, opts = {}) {
     const ep = new RoundedBoxGeometry(g.e + 3, endH, D, 5, 1.9); ep.translate(epX(side), yh, Z0 + D / 2); pf.add(new THREE.Mesh(bend(ep)));
   }
   bridges(true).forEach(b => pf.add(new THREE.Mesh(bend(b))));
-  root.rotation.x = TILT; shadow.rotation.x = TILT;
+  shadow.rotation.x = TILT;
   const exp = { front: pf, tL: temple(-1, Ls, true), tR: temple(1, Ls, true) };
   return { root, shadow, exp, half };
 }

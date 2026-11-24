@@ -51,5 +51,7 @@ export function findEar(P, yawDeg, img, W, H, seg, faceLenMm) {
   // Abstand äusserer Augenwinkel -> Ohransatz, korrigiert um die Kopfdrehung
   const L = Math.hypot(pt.x - canth.x, pt.y - canth.y) * k / Math.max(0.75, Math.abs(Math.sin(yawDeg * Math.PI / 180)));
   if (L < 62 || L > 118) return null;
-  return { L, pt, canth: { x: canth.x, y: canth.y } };
+  // Höhenunterschied: wie viel tiefer als der Augenwinkel liegt der Ohransatz (mm)
+  const drop = -((pt.x - canth.x) * ux + (pt.y - canth.y) * uy) * k;
+  return { L, drop, pt, canth: { x: canth.x, y: canth.y } };
 }

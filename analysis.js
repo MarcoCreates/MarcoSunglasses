@@ -170,5 +170,5 @@ export function sizeGlasses(m, shape, look, tier, rimOverride, aspectOf) {
   const lensH = Math.min(hShape, hMax);
   // Bügel: gemessener Abstand Augenwinkel -> Ohransatz (falls Ohr erkannt), sonst Schätzung
   const templeLen = m.templeLenOverride ?? (Number.isFinite(m.earLen) ? clamp(Math.round(m.earLen + 47), 125, 155) : clamp(Math.round(m.earDepth + 75), 125, 150)); // Augenwinkel->Gesichtsrand + ca. 25 mm bis Ohr + ca. 50 mm Bogen hinter dem Ohr;
-  return { rim, e, bridge, frameW, rawW, lensW, lensH, lensDrop: 0.05 * lensH, templeLen, framePD: bridge + lensW, limitedByBrow: hShape > hMax };
+  return { rim, e, bridge, frameW, rawW, lensW, lensH, lensDrop: 0.05 * lensH, templeLen, earDrop: m.earDrop, framePD: bridge + lensW, limitedByBrow: hShape > hMax };
 }

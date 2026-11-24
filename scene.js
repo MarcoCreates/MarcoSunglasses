@@ -99,9 +99,12 @@ export function updateFaceOccluder(m, P, W, H, biasPx) {
     const t = Math.max(0, Math.min(1, ((p.x - A.x) * abx + (p.y - A.y) * aby + (p.z - A.z) * abz) / ab2));
     return Math.hypot(p.x - A.x - t * abx, p.y - A.y - t * aby, p.z - A.z - t * abz);
   }));
+  const eyes = [P[468], P[473]], RE = 26 * mm;
   for (let i = 0; i < 468; i++) {
     const p = P[i], d = dist(p);
-    const extra = d < 0.75 * R ? 40 * mm : d < R ? 40 * mm * (R - d) / (0.25 * R) : 0;
+    let extra = d < 0.75 * R ? 40 * mm : d < R ? 40 * mm * (R - d) / (0.25 * R) : 0;
+    const de = Math.min(...eyes.map(c => Math.hypot(p.x - c.x, p.y - c.y)));           // Augenpartie
+    if (de < RE) extra = Math.max(extra, 30 * mm * Math.min(1, (RE - de) / (0.35 * RE)));
     a.setXYZ(i, p.x - W / 2, H / 2 - p.y, -(p.z - ez) - biasPx - extra);
   }
   a.needsUpdate = true;
