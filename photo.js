@@ -22,7 +22,7 @@ async function getSegmenter(fileset) {
 
 // shot: { frame: Canvas (Rohbild), glasses: Canvas (Brille mit Transparenz, gleiche Grösse), P: Gesichtspunkte in Pixeln, mirror }
 export async function prepare(shot, fileset) {
-  const { frame, glasses, P, mirror } = shot, W = frame.width, H = frame.height;
+  const { frame, composite, glasses, P, mirror } = shot, W = frame.width, H = frame.height;
   // Bildausschnitt 4:5 um das Gesicht, mit Platz für Schultern
   const faceH = Math.hypot(P[10].x - P[152].x, P[10].y - P[152].y);
   let ch = faceH * 2.7, cw = ch * 0.8;
@@ -47,9 +47,9 @@ export async function prepare(shot, fileset) {
     x.drawImage(src, x0 * sx, y0 * sy, cw * sx, ch * sy, 0, 0, OW, OH);
     return c;
   };
-  const frameCrop = out(frame), gl = out(glasses), mask = out(mc), person = out(frame);
-  mask.getContext("2d").drawImage(gl, 0, 0);   // Brille gehört immer zur Person
-  person.getContext("2d").drawImage(gl, 0, 0); // Brille aufs Bild
+  const frameCrop = out(frame), gl = out(glasses), mask = out(mc), person = out(composite || frame);
+  mask.getContext("2d").drawImage(gl, 0, 0);               // Brille gehört immer zur Person
+  if (!composite) person.getContext("2d").drawImage(gl, 0, 0);
   return { person, mask, frameCrop, mirror };
 }
 

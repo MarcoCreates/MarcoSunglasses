@@ -5,7 +5,7 @@ import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@m
 import * as A from "./analysis.js";
 import * as PH from "./photo.js";
 import { MODELS } from "./models.js";
-import { makeEnvs, makeRig, applyLight, applyBackground, BACKGROUNDS, faceTriangles, makeFaceOccluder, updateFaceOccluder, makeLightProbe, sampleLight, applyProbe } from "./scene.js";
+import { makeEnvs, makeRig, applyLight, applyBackground, BACKGROUNDS, faceTriangles, makeFaceOccluder, updateFaceOccluder, makeLightProbe, sampleLight, applyProbe, makeBgPlane, makeVideoEnv } from "./scene.js";
 import { buildGlasses, headOccluder, groundShadow, aspectOf, disposeGroup, FINISHES, LENSES } from "./glasses.js";
 
 const LOOK_STYLE = { casual: { finish: "gloss", lens: "grey" }, business: { finish: "havana", lens: "brown" }, festival: { finish: "gloss", lens: "mirrorBlue" } };
@@ -164,13 +164,42 @@ function loop() {
   if (st.step === 3 && renderer) renderResult();
 }
 
-function pickModel(k, byUser) {
-  st.shape = k; st.shapeUser = !!byUser; st.rimUser = false;
-  const M = MODELS[k]; if (M) { st.finish = M.finish; st.lens = M.lens; }
+// ---------- Eigene Einstellungen merken ----------
+const store = { get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} } };
+st.custom = store.get("marco.custom", {});   // pro Modell: Oberfläche, Farbe, Gläser, Rahmendicke
+let designs = store.get("marco.designs", []);
+function remember() {
+  st.custom[st.shape] = { finish: st.finish, lens: st.lens, color: st.color, rim: st.rimUser ? st.rim : null };
+  store.set("marco.custom", st.custom);
 }
+function pickModel(k, byUser) {
+  st.shape = k; st.shapeUser = !!byUser;
+  const M = MODELS[k], c = st.custom[k];
+  if (c) { st.finish = c.finish; st.lens = c.lens; st.color = c.color; st.rim = c.rim ?? st.rim; st.rimUser = c.rim != null; }
+  else if (M) { st.finish = M.finish; st.lens = M.lens; st.rimUser = false; }
+}
+function renderDesigns() {
+  $("designs").innerHTML = designs.length ? designs.map((d, i) => `<button data-i="${i}" title="${d.date}">${d.name}<span class="x" data-del="${i}"> ×</span></button>`).join("") : `<span class="hint">Noch keine gespeicherten Designs.</span>`;
+}
+$("saveDesign").onclick = () => {
+  const name = `${MODELS[st.shape].name} · ${LENSES[st.lens].name}`;
+  designs.unshift({ name, model: st.shape, finish: st.finish, lens: st.lens, color: st.color, rim: st.rimUser ? st.rim : null, date: new Date().toLocaleDateString("de-CH") });
+  designs = designs.slice(0, 20); store.set("marco.designs", designs); renderDesigns();
+  $("designMsg").textContent = `✅ «${name}» gespeichert.`;
+};
+$("designs").onclick = e => {
+  const del = e.target.closest("[data-del]");
+  if (del) { designs.splice(+del.dataset.del, 1); store.set("marco.designs", designs); renderDesigns(); return; }
+  const b = e.target.closest("button"); if (!b) return;
+  const d = designs[+b.dataset.i];
+  st.shape = d.model; st.shapeUser = true; st.finish = d.finish; st.lens = d.lens; st.color = d.color;
+  st.rimUser = d.rim != null; if (d.rim != null) st.rim = d.rim;
+  remember(); rebuild(); panels();
+};
+renderDesigns();
 
 // ---------- Ergebnis: 3D und Anprobe ----------
-let renderer, tryScene, tryCam, preScene, preCam, controls, gTry, gPre, occ, envs, tryRig, preRig, faceOcc, probe;
+let renderer, tryScene, tryCam, preScene, preCam, controls, gTry, gPre, occ, envs, tryRig, preRig, faceOcc, probe, bgPlane, bgTex = null, bgSrc = null, videoEnv;
 const smooth = { pos: new THREE.Vector3(), quat: new THREE.Quaternion(), scale: 0, init: false };
 
 function measures() {
@@ -193,6 +222,8 @@ function initRenderer() {
   tryCam = new THREE.OrthographicCamera(-1, 1, 1, -1, -5000, 5000);
   faceOcc = makeFaceOccluder(faceTriangles(FaceLandmarker.FACE_LANDMARKS_TESSELATION)); tryScene.add(faceOcc);
   probe = makeLightProbe();
+  bgPlane = makeBgPlane(); tryScene.add(bgPlane);       // Kamerabild im 3D-Bild: Gläser lassen es durchscheinen
+  videoEnv = makeVideoEnv(renderer);                    // Spiegelungen aus deinem echten Raum
   preScene = new THREE.Scene(); preRig = makeRig(); preScene.add(preRig.g);
   apply3dLook();
   preCam = new THREE.PerspectiveCamera(35, 1, 1, 3000); preCam.position.set(110, 50, 260);
@@ -248,12 +279,12 @@ function panels() {
   $("o_pd").value = m.pd.toFixed(1); $("o_fw").value = sz.frameW.toFixed(1); $("o_br").value = sz.bridge.toFixed(1); $("o_tl").value = sz.templeLen;
 }
 [["o_pd", "pd"], ["o_fw", "fw"], ["o_br", "br"], ["o_tl", "tl"]].forEach(([id, k]) => $(id).onchange = e => { const v = parseFloat(e.target.value); if (!isNaN(v)) { st.ov[k] = v; rebuild(); } });
-$("rim").oninput = e => { st.rim = +e.target.value; st.rimUser = true; rebuild(); };
-$("rimAuto").onclick = e => { e.preventDefault(); st.rimUser = false; rebuild(); };
-$("col").oninput = e => { st.color = e.target.value; rebuild(); };
+$("rim").oninput = e => { st.rim = +e.target.value; st.rimUser = true; remember(); rebuild(); };
+$("rimAuto").onclick = e => { e.preventDefault(); st.rimUser = false; remember(); rebuild(); };
+$("col").oninput = e => { st.color = e.target.value; remember(); rebuild(); };
 $("finish").innerHTML = Object.entries(FINISHES).map(([k, n]) => `<option value="${k}">${n}</option>`).join("");
 $("lens").innerHTML = Object.entries(LENSES).map(([k, l]) => `<option value="${k}">${l.name}</option>`).join("");
-$("finish").onchange = e => { st.finish = e.target.value; rebuild(); };
+$("finish").onchange = e => { st.finish = e.target.value; remember(); rebuild(); };
 $("bgSel").innerHTML = Object.entries(BACKGROUNDS).map(([k, n]) => `<option value="${k}">${n}</option>`).join("");
 function apply3dLook() {
   applyLight(preScene, preRig, envs, st.light); applyBackground(preScene, st.bg, st.bgColor);
@@ -263,7 +294,7 @@ function apply3dLook() {
 $("bgSel").onchange = e => { st.bg = e.target.value; apply3dLook(); };
 $("bgCol").oninput = e => { st.bgColor = e.target.value; apply3dLook(); };
 $("lightSel").onchange = e => { st.light = e.target.value; apply3dLook(); };
-$("lens").onchange = e => { st.lens = e.target.value; rebuild(); };
+$("lens").onchange = e => { st.lens = e.target.value; remember(); rebuild(); };
 
 function fitInfo(sz) {
   const m = measures(), diff = (sz.framePD - m.pd) / 2;
@@ -283,11 +314,22 @@ function renderResult() {
   if (st.view === "3d") {
     const v = $("view3d"), w = v.clientWidth, h = v.clientHeight;
     if (renderer.domElement.width !== Math.floor(w * renderer.getPixelRatio())) { renderer.setSize(w, h); preCam.aspect = w / h; preCam.updateProjectionMatrix(); }
+    const pr3 = Math.min(2, devicePixelRatio); if (renderer.getPixelRatio() !== pr3) renderer.setPixelRatio(pr3);
     controls.update(); renderer.toneMappingExposure = 1.05; renderer.render(preScene, preCam); return;
   }
   const isVid = st.source === "video", W = isVid ? video.videoWidth : still.naturalWidth, H = isVid ? video.videoHeight : still.naturalHeight;
   if (!W) return;
   const stage = $("tryStage"), cw = stage.clientWidth, ch = stage.clientHeight;
+  const src = isVid ? video : still;
+  if (bgSrc !== src) {
+    if (bgTex) bgTex.dispose();
+    bgTex = isVid ? new THREE.VideoTexture(video) : new THREE.Texture(still); bgTex.colorSpace = THREE.SRGBColorSpace; bgTex.needsUpdate = true;
+    bgPlane.material.map = bgTex; bgPlane.material.needsUpdate = true; bgSrc = src;
+  }
+  bgPlane.scale.set(W, H, 1);
+  // Gleiche Auflösung wie die Kamera: Brille wird nicht schärfer als dein Bild
+  const prWanted = Math.min(2, Math.max(0.75, W / Math.max(1, cw)));
+  if (Math.abs(renderer.getPixelRatio() - prWanted) > 0.01) renderer.setPixelRatio(prWanted);
   if (renderer.domElement.width !== Math.floor(cw * renderer.getPixelRatio()) || tryCam.right !== W / 2) {
     renderer.setSize(cw, ch); tryCam.left = -W / 2; tryCam.right = W / 2; tryCam.top = H / 2; tryCam.bottom = -H / 2; tryCam.updateProjectionMatrix();
   }
@@ -306,7 +348,8 @@ function renderResult() {
     updateFaceOccluder(faceOcc, P, W, H, 6 * sc); faceOcc.visible = true;
   } else { gTry.visible = false; faceOcc.visible = false; }
   // Licht an die Raumhelligkeit anpassen (alle 15 Bilder messen)
-  if (probe.n++ % 15 === 0) sampleLight(probe, isVid ? video : still);
+  if (probe.n % 45 === 0) { videoEnv.update(src); if (videoEnv.texture) tryScene.environment = videoEnv.texture; }
+  if (probe.n++ % 15 === 0) sampleLight(probe, src);
   renderer.toneMappingExposure = applyProbe(tryRig, probe);
   renderer.render(tryScene, tryCam);
 }
@@ -339,10 +382,12 @@ $("shoot").onclick = async () => {
     frame.getContext("2d").drawImage(isVid ? video : still, 0, 0, W, H);
     // Brille in voller Kameraauflösung rendern
     const pr = renderer.getPixelRatio(), size = renderer.getSize(new THREE.Vector2());
-    renderer.setPixelRatio(1); renderer.setSize(W, H, false); renderer.render(tryScene, tryCam);
-    const gl = document.createElement("canvas"); gl.width = W; gl.height = H; gl.getContext("2d").drawImage(renderer.domElement, 0, 0, W, H);
+    renderer.setPixelRatio(1); renderer.setSize(W, H, false);
+    const grab = () => { const c = document.createElement("canvas"); c.width = W; c.height = H; c.getContext("2d").drawImage(renderer.domElement, 0, 0, W, H); return c; };
+    renderer.render(tryScene, tryCam); const composite = grab();                         // Kamerabild + Brille
+    bgPlane.visible = false; renderer.render(tryScene, tryCam); const gl = grab(); bgPlane.visible = true; // nur Brille (für die Maske)
     renderer.setPixelRatio(pr); renderer.setSize(size.x, size.y, false);
-    shot = await PH.prepare({ frame, glasses: gl, P: P.map(p => ({ ...p })), mirror: isVid }, fileset);
+    shot = await PH.prepare({ frame, composite, glasses: gl, P: P.map(p => ({ ...p })), mirror: isVid }, fileset);
     $("photoCard").style.display = "block"; paintPhoto();
     $("photoCard").scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (e) { $("viewHint").textContent = "Foto nicht möglich: " + e.message; }

@@ -7,12 +7,12 @@ import { MODELS } from "./models.js";
 
 export const FINISHES = { gloss: "Glänzend", matte: "Matt", havana: "Havanna (Schildpatt)", crystal: "Kristall (transparent)" };
 export const LENSES = {
-  grey:         { name: "Grau",              color: "#25282b", op: 0.84 },
-  brown:        { name: "Braun",             color: "#4a2c18", op: 0.82 },
-  g15:          { name: "Grün klassisch",    color: "#2c3a28", op: 0.84 },
-  orange:       { name: "Orange getönt",     color: "#c8641c", op: 0.72 },
-  peach:        { name: "Pfirsich getönt",   color: "#d7a072", op: 0.55 },
-  gradient:     { name: "Verlauf Grau",      color: "#25282b", op: 0.9, grad: true },
+  grey:         { name: "Grau",              color: "#25282b", op: 0.84, tc: "#6c7075" },
+  brown:        { name: "Braun",             color: "#4a2c18", op: 0.82, tc: "#94603c" },
+  g15:          { name: "Grün klassisch",    color: "#2c3a28", op: 0.84, tc: "#647a5c" },
+  orange:       { name: "Orange getönt",     color: "#c8641c", op: 0.72, tc: "#f0953f" },
+  peach:        { name: "Pfirsich getönt",   color: "#d7a072", op: 0.55, tc: "#f6cfa8" },
+  gradient:     { name: "Verlauf Grau",      color: "#25282b", op: 0.9, grad: true, tc: "#8f9397" },
   mirrorBlue:   { name: "Verspiegelt Blau",  color: "#4b70b8", mirror: true },
   mirrorGold:   { name: "Verspiegelt Gold",  color: "#bf9a5a", mirror: true },
   mirrorSilver: { name: "Verspiegelt Silber", color: "#b9bfc8", mirror: true }
@@ -149,7 +149,22 @@ function gradient() {
   gradTex = new THREE.CanvasTexture(c); gradTex.flipY = true;
   return gradTex;
 }
+let roughTex = null;
+function roughness() {
+  if (roughTex) return roughTex;
+  const c = document.createElement("canvas"); c.width = c.height = 256;
+  const x = c.getContext("2d"), r = seeded(7), img = x.createImageData(256, 256);
+  for (let i = 0; i < 256 * 256; i++) { const v = 200 + r() * 55; img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255; }
+  x.putImageData(img, 0, 0);
+  roughTex = new THREE.CanvasTexture(c); roughTex.wrapS = roughTex.wrapT = THREE.RepeatWrapping; roughTex.repeat.set(1 / 30, 1 / 30);
+  return roughTex;
+}
 export function frameMaterial(style, tryOn) {
+  const m = frameMaterialBase(style, tryOn);
+  if (typeof document !== "undefined" && (style.finish === "gloss" || style.finish === "matte" || !style.finish)) m.roughnessMap = roughness();
+  return m;
+}
+function frameMaterialBase(style, tryOn) {
   const f = style.finish || "gloss";
   if (f === "havana") return new THREE.MeshPhysicalMaterial({ map: havana(), roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.06 });
   if (f === "matte") return new THREE.MeshPhysicalMaterial({ color: style.color, roughness: 0.78, metalness: 0, sheen: 0.4, sheenRoughness: 0.8 });
@@ -159,13 +174,25 @@ export function frameMaterial(style, tryOn) {
     : new THREE.MeshPhysicalMaterial({ color: "#ffffff", transmission: 1, thickness: 4, ior: 1.5, roughness: 0.12, attenuationColor: style.color, attenuationDistance: 6, clearcoat: 1, clearcoatRoughness: 0.03 });
   return new THREE.MeshPhysicalMaterial({ color: style.color, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.05 });
 }
-export function lensMaterial(style) {
+// Getöntes Glas = Filter (multipliziert das Bild dahinter) + Spiegelschicht (addiert Reflexe).
+// So sieht man die Augen durch das Glas, wie bei echten Sonnenbrillen.
+let gradMapTex = null;
+function gradMap() {
+  if (gradMapTex) return gradMapTex;
+  const c = document.createElement("canvas"); c.width = 4; c.height = 256;
+  const x = c.getContext("2d"), g = x.createLinearGradient(0, 0, 0, 256);
+  g.addColorStop(0, "#555"); g.addColorStop(0.5, "#aaa"); g.addColorStop(1, "#fff");
+  x.fillStyle = g; x.fillRect(0, 0, 4, 256);
+  gradMapTex = new THREE.CanvasTexture(c); gradMapTex.colorSpace = THREE.SRGBColorSpace;
+  return gradMapTex;
+}
+export function lensMaterials(style) {
   const L = LENSES[style.lens] || LENSES.grey;
-  // Echte Spiegelgläser: dunkles Grundglas mit dünner, gedeckt gefärbter Metallschicht
-  if (L.mirror) return new THREE.MeshPhysicalMaterial({ color: L.color, metalness: 0.88, roughness: 0.1, iridescence: 0.18, iridescenceIOR: 1.4, transparent: true, opacity: 0.93, envMapIntensity: 1.5, side: THREE.DoubleSide });
-  const m = new THREE.MeshPhysicalMaterial({ color: L.color, metalness: 0, roughness: 0.03, clearcoat: 1, clearcoatRoughness: 0.02, transparent: true, opacity: L.op, envMapIntensity: 1.7, side: THREE.DoubleSide });
-  if (L.grad) m.alphaMap = gradient();
-  return m;
+  if (L.mirror) return [new THREE.MeshPhysicalMaterial({ color: L.color, metalness: 0.88, roughness: 0.1, iridescence: 0.18, iridescenceIOR: 1.4, transparent: true, opacity: 0.93, envMapIntensity: 1.5, side: THREE.DoubleSide })];
+  const filter = new THREE.MeshBasicMaterial({ color: L.tc || L.color, blending: THREE.MultiplyBlending, transparent: true, premultipliedAlpha: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
+  if (L.grad && typeof document !== "undefined") filter.map = gradMap();
+  const refl = new THREE.MeshPhysicalMaterial({ color: "#000000", metalness: 0, roughness: 0.03, clearcoat: 1, clearcoatRoughness: 0.02, envMapIntensity: 1.3, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+  return [filter, refl];
 }
 const metal = () => new THREE.MeshStandardMaterial({ color: "#dcdfe4", metalness: 1, roughness: 0.22 });
 
@@ -181,6 +208,16 @@ function engraving() {
   engMat = new THREE.MeshStandardMaterial({ map: t, transparent: true, metalness: 0.5, roughness: 0.3, emissive: "#6b5420", emissiveMap: t, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
   return engMat;
 }
+
+// Leichte Biegung der Front ums Gesicht (ca. 5°), wie bei echten Fassungen
+const WRAP_R = 550;
+function bend(geo) {
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) { const x = p.getX(i); p.setZ(i, p.getZ(i) - x * x / (2 * WRAP_R)); }
+  p.needsUpdate = true;
+  return geo;
+}
+const TILT = 0.14; // Vorneigung ca. 8°: Unterkante näher am Gesicht
 
 // ---------- Brille ----------
 // g: Ergebnis von sizeGlasses, model: Modell-Schlüssel, style: {color, finish, lens}
@@ -202,9 +239,10 @@ export function buildGlasses(g, model, style, opts = {}) {
   const chunky = M.bridge === "solid";
   const endH = Math.max(7.5, M.temple.h + 2);
   const yh = chunky ? yTopOut - endH / 2 : yc + g.lensH * 0.22;             // Höhe von Scharnier und Bügel
-  const mat = frameMaterial(style, opts.tryOn), lmat = lensMaterial(style), mmat = metal();
+  const mat = frameMaterial(style, opts.tryOn), lmats = lensMaterials(style), mmat = metal();
   const Lb = 28, Ls = g.templeLen - Lb, Lv = opts.tryOn ? Math.min(Ls, g.templeLen - 45) : Ls;
   const epX = side => side * (cx + oxMax + g.e / 2 - 2); // Backe greift 3.5 mm in den Rahmen
+  const zShift = half * half / (2 * WRAP_R);                 // so weit liegt das Scharnier durch die Biegung hinten
 
   // Stege
   const bridges = (exportMode) => {
@@ -229,26 +267,26 @@ export function buildGlasses(g, model, style, opts = {}) {
   // --- Darstellung ---
   const root = new THREE.Group(), front = new THREE.Group(), lenses = new THREE.Group();
   for (const side of [-1, 1]) {
-    const rg = ring(pts, rim, -1.7, D, side, Math.min(1.1, rim.side * 0.25)); rg.translate(side * cx, yc, Z0); front.add(new THREE.Mesh(rg, mat));
-    const lg = lensGeo(pts, 1.2, side); /* Glas vorne in der Nut wie bei echten Fassungen */ lg.translate(side * cx, yc, Z0 + D - 2.2); lenses.add(new THREE.Mesh(lg, lmat));
-    const ep = new RoundedBoxGeometry(g.e + 3, endH, D, 5, 1.9); ep.translate(epX(side), yh, Z0 + D / 2); front.add(new THREE.Mesh(ep, mat));
+    const rg = ring(pts, rim, -1.7, D, side, Math.min(1.1, rim.side * 0.25)); rg.translate(side * cx, yc, Z0); front.add(new THREE.Mesh(bend(rg), mat));
+    const lg = lensGeo(pts, 1.2, side); /* Glas vorne in der Nut wie bei echten Fassungen */ lg.translate(side * cx, yc, Z0 + D - 2.2); bend(lg); lmats.forEach((lm, i) => { const ms = new THREE.Mesh(lg, lm); ms.renderOrder = 1 + i; lenses.add(ms); });
+    const ep = new RoundedBoxGeometry(g.e + 3, endH, D, 5, 1.9); ep.translate(epX(side), yh, Z0 + D / 2); front.add(new THREE.Mesh(bend(ep), mat));
     if (M.pins) for (const dy of [-1.7, 1.7]) {
       const pin = new THREE.CylinderGeometry(0.75, 0.75, 0.5, 20); pin.rotateX(Math.PI / 2);
-      pin.translate(side * (cx + oxMax - rim.side * 0.45), yh + dy, Z0 + D + 0.15); front.add(new THREE.Mesh(pin, mmat));
+      pin.translate(side * (cx + oxMax - rim.side * 0.45), yh + dy, Z0 + D + 0.15); front.add(new THREE.Mesh(bend(pin), mmat));
     }
   }
-  bridges(false).forEach(b => front.add(new THREE.Mesh(b, mat)));
+  bridges(false).forEach(b => front.add(new THREE.Mesh(bend(b), mat)));
   const temple = (side, len, bend) => {
     const grp = new THREE.Group(), w = M.temple.w;
     const tg = templeGeo(M.temple.h, w, len, Lb, bend);
-    tg.translate(side > 0 ? half - w : -half, yh, Z0 - 0.5);
+    tg.translate(side > 0 ? half - w : -half, yh, Z0 - 0.5 - zShift);
     grp.add(new THREE.Mesh(tg, mat));
     return grp;
   };
   const tL = temple(-1, Lv, !opts.tryOn), tR = temple(1, Lv, !opts.tryOn);
   root.add(front, lenses, tL, tR);
   for (const side of [-1, 1]) { // sichtbares Scharnier
-    const hg = new THREE.CylinderGeometry(1.1, 1.1, Math.min(5.5, endH - 1.5), 20); hg.translate(side * (half - M.temple.w * 0.5), yh, Z0 - 1.2);
+    const hg = new THREE.CylinderGeometry(1.1, 1.1, Math.min(5.5, endH - 1.5), 20); hg.translate(side * (half - M.temple.w * 0.5), yh, Z0 - 1.2 - zShift);
     root.add(new THREE.Mesh(hg, mmat));
   }
   // Gravur «marco.» aussen auf beiden Bügeln (nur Darstellung)
@@ -256,7 +294,7 @@ export function buildGlasses(g, model, style, opts = {}) {
   if (eng) for (const side of [-1, 1]) {
     const hgt = Math.min(3.6, M.temple.h * 0.55);
     const m = new THREE.Mesh(new THREE.PlaneGeometry(hgt * engAspect, hgt), eng);
-    m.rotation.y = side * Math.PI / 2; m.position.set(side * (half + 0.03), yh, Z0 - 24);
+    m.rotation.y = side * Math.PI / 2; m.position.set(side * (half + 0.03), yh, Z0 - 24 - zShift);
     root.add(m);
   }
 
@@ -265,7 +303,7 @@ export function buildGlasses(g, model, style, opts = {}) {
   for (const side of [-1, 1]) for (const [o, op] of [[0.4, 0.13], [1.6, 0.08], [3, 0.05], [4.6, 0.03]]) {
     const s = new THREE.Shape(toV(offsetVar(pts, { side: rim.side + o, top: rim.top + o, bottom: rim.bottom + o }), side));
     s.holes.push(new THREE.Path(toV(offset(pts, Math.max(-6, -0.9 - o * 0.6)), side)));
-    const sg = new THREE.ShapeGeometry(s); sg.translate(side * cx, yc - 2.2, 4);
+    const sg = new THREE.ShapeGeometry(s); sg.translate(side * cx, yc - 2.2, 4); bend(sg);
     shadow.add(new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: op, depthWrite: false })));
   }
 
@@ -273,11 +311,12 @@ export function buildGlasses(g, model, style, opts = {}) {
   const pf = new THREE.Group();
   for (const side of [-1, 1]) {
     [[-0.9, D1, 0], [0.15, D2, D1], [-0.9, D1, D1 + D2]].forEach(([hole, dep, z]) => {
-      const geo = ring(pts, rim, hole, dep, side); geo.translate(side * cx, yc, Z0 + z); pf.add(new THREE.Mesh(geo));
+      const geo = ring(pts, rim, hole, dep, side); geo.translate(side * cx, yc, Z0 + z); pf.add(new THREE.Mesh(bend(geo)));
     });
-    const ep = new RoundedBoxGeometry(g.e + 3, endH, D, 5, 1.9); ep.translate(epX(side), yh, Z0 + D / 2); pf.add(new THREE.Mesh(ep));
+    const ep = new RoundedBoxGeometry(g.e + 3, endH, D, 5, 1.9); ep.translate(epX(side), yh, Z0 + D / 2); pf.add(new THREE.Mesh(bend(ep)));
   }
-  bridges(true).forEach(b => pf.add(new THREE.Mesh(b)));
+  bridges(true).forEach(b => pf.add(new THREE.Mesh(bend(b))));
+  root.rotation.x = TILT; shadow.rotation.x = TILT;
   const exp = { front: pf, tL: temple(-1, Ls, true), tR: temple(1, Ls, true) };
   return { root, shadow, exp, half };
 }

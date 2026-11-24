@@ -91,16 +91,57 @@ export function makeFaceOccluder(tris) {
 }
 export function updateFaceOccluder(m, P, W, H, biasPx) {
   const a = m.geometry.attributes.position, ez = (P[468].z + P[473].z) / 2;
-  // Nase (Strecke Nasenwurzel 168 -> Nasenspitze 1) nicht verdecken lassen: Die Brille sitzt darauf
-  const A = P[168], B = P[1], abx = B.x - A.x, aby = B.y - A.y, abz = B.z - A.z, ab2 = abx * abx + aby * aby + abz * abz || 1;
-  const mm = biasPx / 6, R = 16 * mm;
+  // Ganze Nase (Wurzel 168 -> Spitze 1 -> Ansatz 2) nicht verdecken lassen: Die Brille liegt davor bzw. darauf
+  const mm = biasPx / 6, R = 22 * mm;
+  const segs = [[P[168], P[1]], [P[1], P[2]]];
+  const dist = p => Math.min(...segs.map(([A, B]) => {
+    const abx = B.x - A.x, aby = B.y - A.y, abz = B.z - A.z, ab2 = abx * abx + aby * aby + abz * abz || 1;
+    const t = Math.max(0, Math.min(1, ((p.x - A.x) * abx + (p.y - A.y) * aby + (p.z - A.z) * abz) / ab2));
+    return Math.hypot(p.x - A.x - t * abx, p.y - A.y - t * aby, p.z - A.z - t * abz);
+  }));
   for (let i = 0; i < 468; i++) {
-    const p = P[i], t = Math.max(0, Math.min(1, ((p.x - A.x) * abx + (p.y - A.y) * aby + (p.z - A.z) * abz) / ab2));
-    const d = Math.hypot(p.x - A.x - t * abx, p.y - A.y - t * aby, p.z - A.z - t * abz);
-    const extra = d < R ? 30 * mm * (1 - d / R) : 0;
+    const p = P[i], d = dist(p);
+    const extra = d < 0.75 * R ? 40 * mm : d < R ? 40 * mm * (R - d) / (0.25 * R) : 0;
     a.setXYZ(i, p.x - W / 2, H / 2 - p.y, -(p.z - ez) - biasPx - extra);
   }
   a.needsUpdate = true;
+}
+
+// ---------- Kamerabild als Hintergrund und als Spiegelung ----------
+export function makeBgPlane() {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ toneMapped: false, depthWrite: false }));
+  m.renderOrder = -10; m.position.z = -4500; m.frustumCulled = false;
+  return m;
+}
+// Stark weichgezeichnetes Kamerabild als Umgebung: Rahmen und Gläser spiegeln die Farben deines echten Raums
+export function makeVideoEnv(renderer) {
+  const pm = new THREE.PMREMGenerator(renderer);
+  const small = document.createElement("canvas"); small.width = 24; small.height = 12;
+  const c = document.createElement("canvas"); c.width = 256; c.height = 128;
+  const sx = small.getContext("2d"), x = c.getContext("2d");
+  const tex = new THREE.CanvasTexture(c); tex.mapping = THREE.EquirectangularReflectionMapping; tex.colorSpace = THREE.SRGBColorSpace;
+  let rt = null;
+  return {
+    get texture() { return rt ? rt.texture : null; },
+    update(src) {
+      try {
+        sx.drawImage(src, 0, 0, 24, 12);
+        x.imageSmoothingQuality = "high"; x.drawImage(small, 0, 0, 256, 128);
+        // Raumfarben gedämpft, unten dunkler (Boden), damit schwarze Rahmen schwarz bleiben
+        x.fillStyle = "rgba(0,0,0,0.62)"; x.fillRect(0, 0, 256, 128);
+        const fl = x.createLinearGradient(0, 64, 0, 128); fl.addColorStop(0, "rgba(0,0,0,0)"); fl.addColorStop(1, "rgba(0,0,0,0.6)");
+        x.fillStyle = fl; x.fillRect(0, 64, 256, 64);
+        // Lichtquellen oben (Fenster, Lampen): erzeugen die typischen Glanzlichter
+        for (const [u, v, r] of [[0.18, 0.22, 26], [0.5, 0.18, 30], [0.8, 0.25, 22]]) {
+          const g = x.createRadialGradient(u * 256, v * 128, 0, u * 256, v * 128, r);
+          g.addColorStop(0, "rgba(255,252,245,0.95)"); g.addColorStop(0.5, "rgba(255,250,240,0.45)"); g.addColorStop(1, "rgba(255,250,240,0)");
+          x.fillStyle = g; x.fillRect(0, 0, 256, 128);
+        }
+        tex.needsUpdate = true;
+        const n = pm.fromEquirectangular(tex); if (rt) rt.dispose(); rt = n;
+      } catch (e) { /* Bild noch nicht bereit */ }
+    }
+  };
 }
 
 // ---------- Lichtmessung aus dem Kamerabild ----------

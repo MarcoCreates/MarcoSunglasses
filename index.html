@@ -43,6 +43,7 @@ h2{font-size:19px;margin:6px 0 12px}
 .two{display:grid;grid-template-columns:1.35fr 1fr;gap:14px}@media(max-width:800px){.two{grid-template-columns:1fr}}
 .tabs{display:flex;gap:6px;margin-bottom:8px}
 .tabs button,.chips button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;padding:7px 12px;cursor:pointer;font-size:14px;font-family:inherit}
+.chips .x{opacity:.6;margin-left:2px}.chips .x:hover{opacity:1}
 .shootbtn{margin-left:auto;background:var(--acc)!important;color:var(--bg)!important;border-color:var(--acc)!important;font-weight:600}
 .tabs button.sel,.chips button.sel{background:var(--acc2);border-color:var(--acc2);color:#fff}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
@@ -126,6 +127,10 @@ ul{padding-left:18px;margin:6px 0}li{margin:4px 0;font-size:14px}
           <label>Oberfläche <select id="finish"></select></label>
           <label id="colWrap">Rahmenfarbe <input type="color" id="col"></label>
           <label>Gläser <select id="lens"></select></label>
+          <p class="hint" style="margin:10px 0 4px">Deine Anpassungen werden pro Modell automatisch gemerkt.</p>
+          <button class="btn" id="saveDesign" style="margin-top:4px">💾 Design speichern</button>
+          <p class="hint" id="designMsg" style="margin:6px 0 2px"></p>
+          <b style="font-size:13px">Meine Designs</b><div class="chips" id="designs"></div>
         </div>
       </div>
     </div>
