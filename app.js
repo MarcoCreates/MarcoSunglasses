@@ -5,6 +5,7 @@ import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@m
 import * as A from "./analysis.js";
 import * as PH from "./photo.js";
 import { MODELS } from "./models.js";
+import { findEar } from "./ear.js";
 import { makeEnvs, makeRig, applyLight, applyBackground, BACKGROUNDS, faceTriangles, makeFaceOccluder, updateFaceOccluder, makeLightProbe, sampleLight, applyProbe, makeBgPlane, makeVideoEnv } from "./scene.js";
 import { buildGlasses, headOccluder, groundShadow, aspectOf, disposeGroup, FINISHES, LENSES } from "./glasses.js";
 
@@ -101,7 +102,8 @@ $("photo").onchange = async e => {
 // ---------- Scan ----------
 let scan;
 function scanReset() {
-  scan = { front: [], ear: [], pitch: [], sA: false, sB: false, done: false };
+  earDbg = null;
+  scan = { front: [], ear: [], pitch: [], ears: [], earTries: 0, sA: false, sB: false, sidesAt: 0, done: false, n: 0 };
   st.shapeUser = false; $("n2").disabled = true; $("scanRes").style.display = "none"; $("rescan").style.display = "none"; $("cam").style.display = "none";
   updateBars();
 }
@@ -120,6 +122,10 @@ function drawDots(P, W, H) {
   [468, 473, 105, 334, 133, 362, 172, 397, 234, 454, 10, 152].forEach(i => { dctx.beginPath(); dctx.arc(P[i].x, P[i].y, r * 1.6, 0, 7); dctx.fill(); });
   dctx.strokeStyle = "#22c55e"; dctx.lineWidth = r;
   dctx.beginPath(); dctx.moveTo(P[468].x, P[468].y); dctx.lineTo(P[473].x, P[473].y); dctx.stroke();
+  if (earDbg) { // erkannter Ohransatz: grüner Punkt mit Linie zum Augenwinkel
+    dctx.strokeStyle = "rgba(34,197,94,.9)"; dctx.beginPath(); dctx.moveTo(earDbg.canth.x, earDbg.canth.y); dctx.lineTo(earDbg.pt.x, earDbg.pt.y); dctx.stroke();
+    dctx.fillStyle = "#22c55e"; dctx.beginPath(); dctx.arc(earDbg.pt.x, earDbg.pt.y, r * 3, 0, 7); dctx.fill();
+  }
 }
 function scanFrame(P) {
   drawDots(P, video.videoWidth, video.videoHeight);
@@ -133,11 +139,37 @@ function scanFrame(P) {
   if (Math.abs(po.yaw) > 12) scan.ear.push(A.frameMeasure(P).earDepth);
   if (po.yaw < -20) scan.sA = true;
   if (po.yaw > 20) scan.sB = true;
+  // Ohr automatisch suchen, sobald der Kopf weit genug gedreht ist (alle 6 Bilder, im Hintergrund)
+  if (scan.front.length >= NEED && Math.abs(po.yaw) > 35 && !earBusy && scan.earTries < 40 && scan.n++ % 6 === 0) detectEar(P, po.yaw);
   updateBars();
   if (scan.front.length < NEED) setStatus("Schau gerade in die Kamera und halte kurz still …");
   else if (!scan.sA || !scan.sB) setStatus("Super! Jetzt den Kopf langsam nach links und nach rechts drehen.");
-  else { scan.done = true; const m = A.aggregate(scan.front, scan.ear); m.basePitch = [...scan.pitch].sort((a, b) => a - b)[scan.pitch.length >> 1]; finishScan(m, "✅ Scan fertig!"); }
+  else {
+    if (!scan.sidesAt) scan.sidesAt = performance.now();
+    const waited = performance.now() - scan.sidesAt;
+    // Wenn das Ohr noch nicht sicher gefunden ist: bis 4 Sekunden weiter suchen
+    if (scan.ears.length < 3 && waited < 4000) { setStatus("Fast fertig: Kopf noch einmal zur Seite drehen, ich messe deine Ohren …"); return; }
+    scan.done = true; const m = A.aggregate(scan.front, scan.ear);
+    m.basePitch = [...scan.pitch].sort((a, b) => a - b)[scan.pitch.length >> 1];
+    m.earLen = scan.ears.length >= 3 ? [...scan.ears].sort((a, b) => a - b)[scan.ears.length >> 1] : NaN;
+    finishScan(m, "✅ Scan fertig!");
+  }
 }
+let earBusy = false, earCanvas = null, earDbg = null;
+async function detectEar(P, yaw) {
+  earBusy = true; scan.earTries++;
+  try {
+    const W = video.videoWidth, H = video.videoHeight;
+    earCanvas = earCanvas || document.createElement("canvas"); earCanvas.width = W; earCanvas.height = H;
+    const x = earCanvas.getContext("2d", { willReadFrequently: true }); x.drawImage(video, 0, 0, W, H);
+    const seg = await PH.segmentConf(earCanvas, fileset);
+    const lenMm = A.aggregate(scan.front).length;
+    const r = findEar(P, yaw, x.getImageData(0, 0, W, H).data, W, H, seg, lenMm);
+    if (r) { scan.ears.push(r.L); earDbg = r; }
+  } catch (e) { /* Erkennung nicht verfügbar: Schätzung bleibt */ }
+  earBusy = false;
+}
+
 function finishScan(m, msg) {
   st.m = m; st.ov = {}; st.faceOverride = ""; st.shapeUser = false; st.rimUser = false;
   setStatus(msg); $("n2").disabled = false; $("rescan").style.display = "inline-block"; $("cam").style.display = "none";
@@ -147,6 +179,8 @@ function finishScan(m, msg) {
     <tr><td>Augenabstand</td><td>${m.pd.toFixed(1)} mm</td></tr>
     <tr><td>Gesichtsbreite (Wangenknochen)</td><td>${m.cheek.toFixed(0)} mm</td></tr>
     <tr><td>Schläfenbreite</td><td>${m.temple.toFixed(0)} mm</td></tr>
+    <tr><td>Nasenrücken</td><td>${Number.isFinite(m.noseW) ? m.noseW.toFixed(1) + " mm (gemessen)" : (0.55 * m.intercanthal).toFixed(1) + " mm (geschätzt)"}</td></tr>
+    <tr><td>Augenwinkel bis Ohransatz</td><td>${Number.isFinite(m.earLen) ? m.earLen.toFixed(0) + " mm (Ohr erkannt)" : "geschätzt"}</td></tr>
     <tr><td>Gesichtsform</td><td>${A.FACE_SHAPES[c.shape]}</td></tr></table>`;
 }
 

@@ -20,6 +20,14 @@ async function getSegmenter(fileset) {
   return seg;
 }
 
+// Freistellung als Wahrscheinlichkeitsmaske (für die Ohr-Erkennung)
+export async function segmentConf(canvas, fileset) {
+  const s = await getSegmenter(fileset), r = s.segment(canvas), m = r.confidenceMasks[0];
+  const out = { arr: m.getAsFloat32Array().slice(), w: m.width, h: m.height };
+  if (m.close) m.close(); if (r.close) r.close();
+  return out;
+}
+
 // shot: { frame: Canvas (Rohbild), glasses: Canvas (Brille mit Transparenz, gleiche Grösse), P: Gesichtspunkte in Pixeln, mirror }
 export async function prepare(shot, fileset) {
   const { frame, composite, glasses, P, mirror } = shot, W = frame.width, H = frame.height;

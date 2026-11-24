@@ -45,9 +45,10 @@ const d3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const norm = a => { const l = Math.hypot(...a) || 1; return a.map(v => v / l); };
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const deg = r => r * 180 / Math.PI;
-const median = arr => { const s = [...arr].sort((a, b) => a - b); const n = s.length; return n ? (n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2) : NaN; };
+const median = arr0 => { const arr = arr0.filter(v => Number.isFinite(v)); const s = [...arr].sort((a, b) => a - b); const n = s.length; return n ? (n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2) : NaN; };
 
 // MediaPipe-Landmarks (normiert) -> Pixel. z hat dieselbe Skala wie x.
 export function toPx(lm, W, H) { return lm.map(p => ({ x: p.x * W, y: p.y * H, z: p.z * W })); }
@@ -76,10 +77,38 @@ function angleAt(c, a, b) {
   return deg(Math.acos(clamp(cos, -1, 1)));
 }
 
+// Nasenrücken auf Höhe der Brillenauflage messen (statt aus den Augenwinkeln schätzen).
+// Gesichtspunkte werden in ein kopffestes Koordinatensystem gedreht (mm, Ursprung zwischen den Pupillen).
+export function noseBridge(P) {
+  const k = IRIS_MM / irisPx(P), po = pose(P);
+  const T = p => [p.x, -p.y, -p.z];
+  const o = T({ x: (P[468].x + P[473].x) / 2, y: (P[468].y + P[473].y) / 2, z: (P[468].z + P[473].z) / 2 });
+  const loc = p => { const v = sub(T(p), o); return [dot(v, po.x) * k, dot(v, po.y) * k, dot(v, po.z) * k]; };
+  const L = P.slice(0, 468).map(loc);
+  const zBase = (L[133][2] + L[362][2]) / 2;                         // Tiefe der inneren Augenwinkel
+  const band = L.filter(q => q[1] > -8 && q[1] < -1 && Math.abs(q[0]) < 16); // Höhe der Auflage, nahe der Mitte
+  if (band.length < 6) return { width: NaN, depth: NaN };
+  const zMax = Math.max(...band.map(q => q[2]));
+  const zc = zBase + 0.45 * (zMax - zBase);                          // Tiefe, auf der der Steg anliegt
+  const edge = sgn => {
+    const side = band.filter(q => sgn * q[0] > 0);
+    const above = side.filter(q => q[2] >= zc), below = side.filter(q => q[2] < zc);
+    if (!above.length || !below.length) return NaN;
+    const a = above.reduce((m, q) => sgn * q[0] > sgn * m[0] ? q : m), b = below.reduce((m, q) => sgn * q[0] < sgn * m[0] ? q : m);
+    const t = (zc - b[2]) / ((a[2] - b[2]) || 1);
+    return b[0] + (a[0] - b[0]) * t;
+  };
+  const w = edge(1) - edge(-1);
+  return { width: w > 10 && w < 27 ? w : NaN, depth: zMax - zBase };
+}
+
 // Masse eines Einzelbildes in mm
 export function frameMeasure(P) {
   const k = IRIS_MM / irisPx(P);
+  const nb = noseBridge(P);
   return {
+    noseW: nb.width,
+    noseDepth: nb.depth,
     pd: d2(P[468], P[473]) * k,
     cheek: d2(P[234], P[454]) * k,
     temple: d2(P[127], P[356]) * k,
@@ -99,6 +128,8 @@ export function aggregate(frames, earFrames) {
   const m = {};
   for (const key of keys) m[key] = median(frames.map(f => f[key]));
   if (earFrames && earFrames.length >= 5) m.earDepth = median(earFrames);
+  // Nasenrücken nur verwenden, wenn in genügend Bildern gemessen
+  if (frames.filter(f => Number.isFinite(f.noseW)).length < frames.length * 0.4) m.noseW = NaN;
   return m;
 }
 
@@ -127,7 +158,8 @@ export function sizeGlasses(m, shape, look, tier, rimOverride, aspectOf) {
   const M = MODELS[shape] || MODELS.bern;
   const rim = rimOverride ?? clamp(M.rim.side * Math.sqrt(m.cheek / 140), minRim, 8);
   const e = 5;
-  const bridge = clamp(m.bridgeOverride ?? 0.55 * m.intercanthal, 14, 22);
+  // Steg: gemessener Nasenrücken, sonst Schätzung aus dem Augenwinkel-Abstand
+  const bridge = clamp(m.bridgeOverride ?? (Number.isFinite(m.noseW) ? m.noseW + 0.5 : 0.55 * m.intercanthal), 14, 24);
   const plausibleTemple = m.temple > m.cheek * 0.85 && m.temple < m.cheek * 1.05;
   const frameW = m.frameWOverride ?? (plausibleTemple ? m.temple : m.cheek * 0.96);
   const rawW = (frameW + (M.oversize || 0) - bridge - 2 * rim - 2 * e) / 2;
@@ -136,6 +168,7 @@ export function sizeGlasses(m, shape, look, tier, rimOverride, aspectOf) {
   // Grosse Formen dürfen die Brauen leicht überdecken
   const hMax = Math.max(28, m.browGap * 2 * 0.95 * (M.oversize || M.outline.drop ? 1.15 : 1));
   const lensH = Math.min(hShape, hMax);
-  const templeLen = m.templeLenOverride ?? clamp(Math.round(m.earDepth + 75), 125, 150); // Augenwinkel->Gesichtsrand + ca. 25 mm bis Ohr + ca. 50 mm Bogen hinter dem Ohr;
+  // Bügel: gemessener Abstand Augenwinkel -> Ohransatz (falls Ohr erkannt), sonst Schätzung
+  const templeLen = m.templeLenOverride ?? (Number.isFinite(m.earLen) ? clamp(Math.round(m.earLen + 47), 125, 155) : clamp(Math.round(m.earDepth + 75), 125, 150)); // Augenwinkel->Gesichtsrand + ca. 25 mm bis Ohr + ca. 50 mm Bogen hinter dem Ohr;
   return { rim, e, bridge, frameW, rawW, lensW, lensH, lensDrop: 0.05 * lensH, templeLen, framePD: bridge + lensW, limitedByBrow: hShape > hMax };
 }
