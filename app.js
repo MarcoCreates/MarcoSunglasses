@@ -17,7 +17,8 @@ const STEPS = ["Look", "Material", "Scan", "Deine Brille"];
 const NEED = 45; // gerade Bilder für die Messung
 
 const $ = id => document.getElementById(id);
-const st = { step: 0, look: null, tier: null, m: null, face: null, faceOverride: "", shape: null, shapeUser: false,
+const crop = { x: 0, y: 0, w: 0, h: 0, init: false };
+const st = { zoom: true, step: 0, look: null, tier: null, m: null, face: null, faceOverride: "", shape: null, shapeUser: false,
   rim: 4.5, rimUser: false, color: "#1f1f1f", finish: "gloss", lens: "grey", bg: "white", bgColor: "#e6dfd2", light: "studio", source: null, img: null, staticP: null, view: "try", ov: {} };
 
 // ---------- Navigation ----------
@@ -63,7 +64,7 @@ const video = $("video"), still = $("still"), dots = $("dots"), dctx = dots.getC
 let stream = null;
 async function startCam() {
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
     video.srcObject = stream; await video.play();
   } catch (e) { setStatus("Kamera nicht verfügbar (" + e.name + "). Erlaube den Kamerazugriff oder lade ein Foto hoch."); return; }
   await getFL("VIDEO");
@@ -283,6 +284,7 @@ function setView(v) {
   smooth.init = false;
 }
 document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => setView(b.dataset.v));
+$("zoomBtn").onclick = () => { st.zoom = !st.zoom; crop.init = false; $("zoomBtn").textContent = st.zoom ? "🔍 Ganzes Bild" : "🔍 Gesicht nah"; };
 
 function rebuild() {
   for (const g of [gTry, gPre]) { while (g.children.length) { const c = g.children.pop(); disposeGroup(c); } }
@@ -365,13 +367,24 @@ function renderResult() {
   }
   bgPlane.scale.set(W, H, 1);
   // Gleiche Auflösung wie die Kamera: Brille wird nicht schärfer als dein Bild
-  const prWanted = Math.min(2, Math.max(0.75, W / Math.max(1, cw)));
+  const prWanted = Math.min(2, Math.max(1, (st.zoom ? crop.w || W : W) / Math.max(1, cw)));
   if (Math.abs(renderer.getPixelRatio() - prWanted) > 0.01) renderer.setPixelRatio(prWanted);
   const curT = renderer.getSize(new THREE.Vector2());
-  if (curT.x !== cw || curT.y !== ch || tryCam.right !== W / 2 || tryCam.top !== H / 2) {
-    renderer.setSize(cw, ch); tryCam.left = -W / 2; tryCam.right = W / 2; tryCam.top = H / 2; tryCam.bottom = -H / 2; tryCam.updateProjectionMatrix();
-  }
+  if (curT.x !== cw || curT.y !== ch) renderer.setSize(cw, ch);
   const P = isVid ? curP : st.staticP;
+  // Ausschnitt: automatisch auf das Gesicht gezoomt (Format der Bühne), sonst ganzes Bild eingepasst
+  const asp = cw / Math.max(1, ch);
+  let fw, fh, fx = 0, fy = 0;
+  if (st.zoom && P) {
+    const fl = Math.hypot(P[10].x - P[152].x, P[10].y - P[152].y);
+    fh = Math.min(H, 2.5 * fl); fw = fh * asp; if (fw > W) { fw = W; fh = fw / asp; }
+    const cxp = (P[10].x + P[152].x) / 2, cyp = P[10].y * 0.6 + P[152].y * 0.4;
+    fx = Math.min(W / 2 - fw / 2, Math.max(-W / 2 + fw / 2, cxp - W / 2));
+    fy = Math.min(H / 2 - fh / 2, Math.max(-H / 2 + fh / 2, H / 2 - cyp));
+  } else { fh = Math.max(H, W / asp); fw = fh * asp; }
+  const k = (crop.init && isVid) ? 0.12 : 1;
+  crop.x += (fx - crop.x) * k; crop.y += (fy - crop.y) * k; crop.w += (fw - crop.w) * k; crop.h += (fh - crop.h) * k; crop.init = true;
+  tryCam.left = crop.x - crop.w / 2; tryCam.right = crop.x + crop.w / 2; tryCam.top = crop.y + crop.h / 2; tryCam.bottom = crop.y - crop.h / 2; tryCam.updateProjectionMatrix();
   if (P) {
     const po = A.pose(P);
     const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(...po.x), new THREE.Vector3(...po.y), new THREE.Vector3(...po.z)));
@@ -420,16 +433,48 @@ $("shoot").onclick = async () => {
     frame.getContext("2d").drawImage(isVid ? video : still, 0, 0, W, H);
     // Brille in voller Kameraauflösung rendern
     const pr = renderer.getPixelRatio(), size = renderer.getSize(new THREE.Vector2());
+    const fr = [tryCam.left, tryCam.right, tryCam.top, tryCam.bottom];
+    tryCam.left = -W / 2; tryCam.right = W / 2; tryCam.top = H / 2; tryCam.bottom = -H / 2; tryCam.updateProjectionMatrix();
     renderer.setPixelRatio(1); renderer.setSize(W, H, false);
     const grab = () => { const c = document.createElement("canvas"); c.width = W; c.height = H; c.getContext("2d").drawImage(renderer.domElement, 0, 0, W, H); return c; };
     renderer.render(tryScene, tryCam); const composite = grab();                         // Kamerabild + Brille
     bgPlane.visible = false; renderer.render(tryScene, tryCam); const gl = grab(); bgPlane.visible = true; // nur Brille (für die Maske)
     renderer.setPixelRatio(pr); renderer.setSize(size.x, size.y, false);
+    [tryCam.left, tryCam.right, tryCam.top, tryCam.bottom] = fr; tryCam.updateProjectionMatrix();
     shot = await PH.prepare({ frame, composite, glasses: gl, P: P.map(p => ({ ...p })), mirror: isVid }, fileset);
     $("photoCard").style.display = "block"; paintPhoto();
     $("photoCard").scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (e) { $("viewHint").textContent = "Foto nicht möglich: " + e.message; }
   $("shoot").disabled = false; $("shoot").textContent = "📸 Modelfoto";
+};
+
+// Modelfoto aus einem hochgeladenen Porträt: volle Handykamera-Qualität statt Webcam
+$("shootFile").onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  const say = t => { $("viewHint").textContent = t; $("phMsg").textContent = t; };
+  say("Foto wird ausgewertet …");
+  try {
+    const src = new Image(); src.src = URL.createObjectURL(f); await src.decode();
+    // Auf max. 2400 px verkleinern (WebGL-Grenze, schneller)
+    const s = Math.min(1, 2400 / Math.max(src.naturalWidth, src.naturalHeight));
+    const c = document.createElement("canvas"); c.width = Math.round(src.naturalWidth * s); c.height = Math.round(src.naturalHeight * s);
+    c.getContext("2d").drawImage(src, 0, 0, c.width, c.height);
+    const url = URL.createObjectURL(await new Promise(r => c.toBlob(r, "image/jpeg", 0.95)));
+    const prev = { source: st.source, staticP: st.staticP, src: still.src };
+    still.src = url; await still.decode();
+    await getFL("IMAGE"); const r = fl.detect(still);
+    const restore = async () => {
+      if (prev.source === "video" && stream) { st.source = "video"; st.staticP = null; await getFL("VIDEO"); }
+      else { st.source = prev.source; st.staticP = prev.staticP; if (prev.src) { still.src = prev.src; await still.decode().catch(() => {}); } }
+      bgSrc = null; smooth.init = false; crop.init = false; showMedia();
+    };
+    if (!r.faceLandmarks.length) { await restore(); say("Kein Gesicht im Foto gefunden. Bitte ein Porträt von vorne verwenden."); return; }
+    st.source = "image"; st.staticP = A.toPx(r.faceLandmarks[0], still.naturalWidth, still.naturalHeight);
+    bgSrc = null; smooth.init = false; crop.init = false; showMedia(); renderResult();
+    await $("shoot").onclick();
+    await restore();
+    $("phMsg").textContent = "✅ Modelfoto aus deinem Porträt erstellt.";
+  } catch (err) { say("Foto nicht möglich: " + err.message); }
 };
 function photoBlob() { return new Promise(r => phCanvas.toBlob(r, "image/jpeg", 0.92)); }
 $("phSave").onclick = async () => {

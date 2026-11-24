@@ -87,7 +87,7 @@ export function noseBridge(P) {
   const L = P.slice(0, 468).map(loc);
   const zBase = (L[133][2] + L[362][2]) / 2;                         // Tiefe der inneren Augenwinkel
   const band = L.filter(q => q[1] > -8 && q[1] < -1 && Math.abs(q[0]) < 16); // Höhe der Auflage, nahe der Mitte
-  if (band.length < 6) return { width: NaN, depth: NaN };
+  if (band.length < 6) return { width: NaN, depth: NaN, zc: NaN };
   const zMax = Math.max(...band.map(q => q[2]));
   const zc = zBase + 0.45 * (zMax - zBase);                          // Tiefe, auf der der Steg anliegt
   const edge = sgn => {
@@ -99,7 +99,7 @@ export function noseBridge(P) {
     return b[0] + (a[0] - b[0]) * t;
   };
   const w = edge(1) - edge(-1);
-  return { width: w > 10 && w < 27 ? w : NaN, depth: zMax - zBase };
+  return { width: w > 10 && w < 27 ? w : NaN, depth: zMax - zBase, zc: w > 10 && w < 27 ? zc : NaN };
 }
 
 // Masse eines Einzelbildes in mm
@@ -109,6 +109,7 @@ export function frameMeasure(P) {
   return {
     noseW: nb.width,
     noseDepth: nb.depth,
+    noseZc: nb.zc,
     pd: d2(P[468], P[473]) * k,
     cheek: d2(P[234], P[454]) * k,
     temple: d2(P[127], P[356]) * k,
@@ -129,7 +130,7 @@ export function aggregate(frames, earFrames) {
   for (const key of keys) m[key] = median(frames.map(f => f[key]));
   if (earFrames && earFrames.length >= 5) m.earDepth = median(earFrames);
   // Nasenrücken nur verwenden, wenn in genügend Bildern gemessen
-  if (frames.filter(f => Number.isFinite(f.noseW)).length < frames.length * 0.4) m.noseW = NaN;
+  if (frames.filter(f => Number.isFinite(f.noseW)).length < frames.length * 0.4) { m.noseW = NaN; m.noseZc = NaN; }
   return m;
 }
 
@@ -170,5 +171,5 @@ export function sizeGlasses(m, shape, look, tier, rimOverride, aspectOf) {
   const lensH = Math.min(hShape, hMax);
   // Bügel: gemessener Abstand Augenwinkel -> Ohransatz (falls Ohr erkannt), sonst Schätzung
   const templeLen = m.templeLenOverride ?? (Number.isFinite(m.earLen) ? clamp(Math.round(m.earLen + 47), 125, 155) : clamp(Math.round(m.earDepth + 75), 125, 150)); // Augenwinkel->Gesichtsrand + ca. 25 mm bis Ohr + ca. 50 mm Bogen hinter dem Ohr;
-  return { rim, e, bridge, frameW, rawW, lensW, lensH, lensDrop: 0.05 * lensH, templeLen, earDrop: m.earDrop, framePD: bridge + lensW, limitedByBrow: hShape > hMax };
+  return { rim, e, bridge, frameW, rawW, lensW, lensH, lensDrop: 0.05 * lensH, templeLen, earDrop: m.earDrop, noseZc: m.noseZc, framePD: bridge + lensW, limitedByBrow: hShape > hMax };
 }

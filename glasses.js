@@ -264,6 +264,18 @@ export function buildGlasses(g, model, style, opts = {}) {
     return parts;
   };
 
+
+  // Nasenauflagen (alle Modelle): zwei Acetat-Pads innen am Steg, oben leicht nach innen geneigt.
+  // Tiefe aus dem gemessenen Nasenrücken: flache Nase -> höhere Pads, damit die Brille nicht auf den Wangen sitzt.
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const padDepth = clamp(Number.isFinite(g.noseZc) ? Z0 - g.noseZc : 5, 2, 9);
+  const pads = () => [-1, 1].map(side => {
+    const p = new RoundedBoxGeometry(2.6, 11, padDepth + 1.2, 4, 1.1);
+    p.rotateZ(side * 0.35); p.rotateY(-side * 0.25);
+    p.translate(side * (g.bridge / 2 + 1.3), yc - 4.5, Z0 - padDepth / 2 + 0.4);
+    return bend(p);
+  });
+
   // --- Darstellung ---
   const root = new THREE.Group(), front = new THREE.Group(), lenses = new THREE.Group();
   for (const side of [-1, 1]) {
@@ -276,6 +288,7 @@ export function buildGlasses(g, model, style, opts = {}) {
     }
   }
   bridges(false).forEach(b => front.add(new THREE.Mesh(bend(b), mat)));
+  pads().forEach(p => front.add(new THREE.Mesh(p, mat)));
   const temple = (side, len, bend) => {
     const grp = new THREE.Group(), w = M.temple.w;
     const tg = templeGeo(M.temple.h, w, len, Lb, bend);
@@ -323,6 +336,7 @@ export function buildGlasses(g, model, style, opts = {}) {
     const ep = new RoundedBoxGeometry(g.e + 3, endH, D, 5, 1.9); ep.translate(epX(side), yh, Z0 + D / 2); pf.add(new THREE.Mesh(bend(ep)));
   }
   bridges(true).forEach(b => pf.add(new THREE.Mesh(bend(b))));
+  pads().forEach(p => pf.add(new THREE.Mesh(p)));
   shadow.rotation.x = TILT;
   const exp = { front: pf, tL: temple(-1, Ls, true), tR: temple(1, Ls, true) };
   return { root, shadow, exp, half };

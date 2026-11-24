@@ -34,17 +34,21 @@ h2{font-size:19px;margin:6px 0 12px}
 .stage video,.stage img{display:block;width:100%;height:auto}
 .stage canvas{position:absolute;inset:0;width:100%!important;height:100%!important;pointer-events:none}
 .stage.mirror video,.stage.mirror canvas{transform:scaleX(-1)}
+#tryStage{max-width:none;width:min(100%,calc(80vh*0.8));aspect-ratio:4/5}
+#tryStage video,#tryStage img{position:absolute;left:0;top:0;width:2px!important;height:2px!important;opacity:0}
+.zoombtn{position:absolute;right:10px;top:10px;z-index:3;border:none;border-radius:99px;padding:6px 11px;font-size:13px;background:rgba(0,0,0,.45);color:#fff;cursor:pointer;font-family:inherit}
 .stage .placeholder{color:#aaa;padding:80px 20px;text-align:center;font-size:15px}
 .bars{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
 .bars div{font-size:12px;color:var(--mute)}.bar{height:8px;background:var(--line);border-radius:99px;overflow:hidden;margin-top:4px}.bar i{display:block;height:100%;width:0;background:var(--ok);transition:width .2s}
-#view3d{width:100%;height:420px;border-radius:14px;overflow:hidden;background:#f6f6f4}
+#view3d{width:100%;height:min(600px,72vh);border-radius:14px;overflow:hidden;background:#f6f6f4}
 .ctrl3d{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:13px;color:var(--mute)}
 
-.two{display:grid;grid-template-columns:1.35fr 1fr;gap:14px}@media(max-width:800px){.two{grid-template-columns:1fr}}
+.two{display:grid;grid-template-columns:1.6fr 1fr;gap:14px}@media(max-width:800px){.two{grid-template-columns:1fr}}
 .tabs{display:flex;gap:6px;margin-bottom:8px}
 .tabs button,.chips button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;padding:7px 12px;cursor:pointer;font-size:14px;font-family:inherit}
 .chips .x{opacity:.6;margin-left:2px}.chips .x:hover{opacity:1}
 .shootbtn{margin-left:auto;background:var(--acc)!important;color:var(--bg)!important;border-color:var(--acc)!important;font-weight:600}
+.minibtn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;padding:7px 12px;cursor:pointer;font-size:14px}
 .tabs button.sel,.chips button.sel{background:var(--acc2);border-color:var(--acc2);color:#fff}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 table{width:100%;border-collapse:collapse;font-size:14px}td{padding:6px 2px;border-bottom:1px solid var(--line)}td:last-child{text-align:right;font-weight:600}
@@ -108,8 +112,8 @@ ul{padding-left:18px;margin:6px 0}li{margin:4px 0;font-size:14px}
     <h2>4. Deine Brille</h2>
     <div class="two">
       <div>
-        <div class="tabs"><button data-v="try" class="sel">Live-Anprobe</button><button data-v="3d">3D-Ansicht</button><button id="shoot" class="shootbtn">📸 Modelfoto</button></div>
-        <div class="stage mirror" id="tryStage"></div>
+        <div class="tabs"><button data-v="try" class="sel">Live-Anprobe</button><button data-v="3d">3D-Ansicht</button><button id="shoot" class="shootbtn">📸 Modelfoto</button><label id="shootFileL" class="minibtn" for="shootFile" title="Ein gutes Porträtfoto (z. B. Handykamera) als Basis verwenden">🖼️ Mit eigenem Foto</label><input type="file" id="shootFile" accept="image/*" style="display:none"></div>
+        <div class="stage mirror" id="tryStage"><button id="zoomBtn" class="zoombtn" title="Ausschnitt wechseln">🔍 Ganzes Bild</button></div>
         <div id="view3d" style="display:none"></div>
         <div id="view3dCtrl" class="ctrl3d" style="display:none">
           <label>Hintergrund <select id="bgSel"></select></label>
@@ -141,10 +145,10 @@ ul{padding-left:18px;margin:6px 0}li{margin:4px 0;font-size:14px}
       <p class="hint" style="margin:10px 0 4px">Look</p><div class="chips" id="phLook"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
         <button class="btn p" id="phSave">Speichern</button><button class="btn" id="phShare">Teilen</button>
-        <label class="btn" for="phOwn">Eigenes Hintergrundfoto</label><input type="file" id="phOwn" accept="image/*" style="display:none">
+        <label class="btn" for="shootFile">Porträt hochladen</label><label class="btn" for="phOwn">Eigenes Hintergrundfoto</label><input type="file" id="phOwn" accept="image/*" style="display:none">
         <button class="btn" id="phClose">Schliessen</button>
       </div>
-      <p class="hint" id="phMsg">Tipp: Gutes Licht von vorne macht das Foto viel besser. Für ein neues Foto einfach nochmals auf «📸 Modelfoto» tippen.</p>
+      <p class="hint" id="phMsg">Tipp: Für die beste Qualität ein Porträt mit der Handykamera machen (Hauptkamera, Tageslicht von vorne, Gesicht gerade) und mit «Porträt hochladen» verwenden. Für ein neues Foto einfach nochmals auf «📸 Modelfoto» tippen.</p>
     </div>
     <div class="two">
       <div class="card"><b>Masse</b> <span class="hint">(gemessen, bei Bedarf korrigieren)</span>
