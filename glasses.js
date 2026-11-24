@@ -3,21 +3,14 @@
 // x rechts (im Bild), y oben, z zur Kamera.
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-
-const SHAPE_CFG = {
-  round:      { n: 2,   ar: 0.9 },
-  rect:       { n: 5,   ar: 0.56 },
-  wayfarer:   { n: 3.2, ar: 0.78, trap: 0.13 },
-  clubmaster: { n: 3,   ar: 0.74, flat: 0.85 },
-  aviator:    { n: 2.3, ar: 0.92, drop: 0.35 },
-  oversize:   { n: 3.2, ar: 0.95, trap: 0.08 }
-};
+import { MODELS } from "./models.js";
 
 export const FINISHES = { gloss: "Glänzend", matte: "Matt", havana: "Havanna (Schildpatt)", crystal: "Kristall (transparent)" };
 export const LENSES = {
   grey:         { name: "Grau",              color: "#25282b", op: 0.84 },
   brown:        { name: "Braun",             color: "#4a2c18", op: 0.82 },
   g15:          { name: "Grün klassisch",    color: "#2c3a28", op: 0.84 },
+  orange:       { name: "Orange getönt",     color: "#c8641c", op: 0.72 },
   gradient:     { name: "Verlauf Grau",      color: "#25282b", op: 0.9, grad: true },
   mirrorBlue:   { name: "Verspiegelt Blau",  color: "#4b70b8", mirror: true },
   mirrorGold:   { name: "Verspiegelt Gold",  color: "#bf9a5a", mirror: true },
@@ -25,14 +18,25 @@ export const LENSES = {
 };
 
 // ---------- Glaskontur ----------
-function rawOutline(shape, w) {
-  const a = w / 2, C = SHAPE_CFG[shape], b = a * C.ar, p = [], N = 120;
+// Superellipse, optional mit abgeschrägten Ecken (chamfer), danach Verformungen:
+// trap = oben breiter, flat = Oberkante flacher, drop = Tropfen unten aussen, lift = Cat-Eye aussen oben.
+function implicitF(x, y, o, a, b) {
+  const f = Math.pow(Math.pow(Math.abs(x) / a, o.n) + Math.pow(Math.abs(y) / b, o.n), 1 / o.n);
+  if (!o.chamfer) return f;
+  const g = (Math.abs(x) / a + Math.abs(y) / b) / (2 - o.chamfer * 1.2), k = 14;
+  return Math.pow(f ** k + g ** k, 1 / k);
+}
+function rawOutline(model, w) {
+  const o = (MODELS[model] || MODELS.bern).outline, a = w / 2, b = a * o.ar, p = [], N = 140;
   for (let i = 0; i < N; i++) {
     const t = i / N * Math.PI * 2, c = Math.cos(t), s = Math.sin(t);
-    let x = a * Math.sign(c) * Math.abs(c) ** (2 / C.n), y = b * Math.sign(s) * Math.abs(s) ** (2 / C.n);
-    if (C.trap) x *= 1 + C.trap * (y / b);
-    if (C.flat && y > 0) y *= C.flat;
-    if (C.drop && y < 0) y *= 1 + C.drop * ((x / a) + 1) / 2;
+    let lo = 0, hi = 2 * Math.max(a, b);
+    for (let k = 0; k < 30; k++) { const mid = (lo + hi) / 2; implicitF(mid * c, mid * s, o, a, b) < 1 ? lo = mid : hi = mid; }
+    let x = lo * c, y = lo * s;
+    if (o.trap) x *= 1 + o.trap * (y / b);
+    if (o.flat && y > 0) y *= o.flat;
+    if (o.drop && y < 0) y *= 1 + o.drop * ((x / a) + 1) / 2;
+    if (o.lift && y > 0 && x > 0) y += o.lift * b * Math.pow(x / a, 2) * Math.pow(y / b, 0.7);
     p.push([x, y]);
   }
   let mn = Infinity, mx = -Infinity;
@@ -41,29 +45,35 @@ function rawOutline(shape, w) {
   p.forEach(q => q[1] -= off);
   return { p, h: mx - mn };
 }
-export function aspectOf(shape) { return rawOutline(shape, 100).h / 100; }
-export function lensOutline(shape, w, h) {
-  const o = rawOutline(shape, w), s = h ? h / o.h : 1;
+export function aspectOf(model) { return rawOutline(model, 100).h / 100; }
+export function lensOutline(model, w, h) {
+  const o = rawOutline(model, w), s = h ? h / o.h : 1;
   o.p.forEach(q => q[1] *= s);
   return o.p;
 }
-function offset(p, d) {
+// Konstanter Versatz der Kontur nach aussen (d > 0) oder innen (d < 0)
+function offset(p, d) { return offsetVar(p, { side: d, top: d, bottom: d }); }
+// Versatz je nach Richtung: oben, seitlich und unten unterschiedlich dick
+function offsetVar(p, r) {
   const n = p.length;
   return p.map((q, i) => {
     const a = p[(i - 1 + n) % n], b = p[(i + 1) % n];
-    const tx = b[0] - a[0], ty = b[1] - a[1], l = Math.hypot(tx, ty) || 1;
-    return [q[0] + ty / l * d, q[1] - tx / l * d];
+    const tx = b[0] - a[0], ty = b[1] - a[1], l = Math.hypot(tx, ty) || 1, nx = ty / l, ny = -tx / l;
+    const d = ny > 0 ? r.side + (r.top - r.side) * Math.pow(ny, 1.5) : r.side + (r.bottom - r.side) * Math.pow(-ny, 1.5);
+    return [q[0] + nx * d, q[1] + ny * d];
   });
 }
 const toV = (p, m) => p.map(q => new THREE.Vector2(q[0] * m, q[1]));
+const scaleRim = (r, s, minus = 0) => ({ side: r.side * s - minus, top: r.top * s - minus, bottom: r.bottom * s - minus });
 
 // ---------- Geometrien ----------
-function ring(p, outer, hole, depth, mir, bevel) {
-  const s = new THREE.Shape(toV(offset(p, outer - (bevel || 0)), mir));
-  s.holes.push(new THREE.Path(toV(offset(p, hole + (bevel || 0)), mir)));
-  if (!bevel) return new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false, curveSegments: 1 });
-  const g = new THREE.ExtrudeGeometry(s, { depth: depth - 2 * bevel, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 4, curveSegments: 1 });
-  g.translate(0, 0, bevel);
+function ring(p, rim, hole, depth, mir, bevel) {
+  const bv = bevel || 0;
+  const s = new THREE.Shape(toV(offsetVar(p, { side: rim.side - bv, top: rim.top - bv, bottom: rim.bottom - bv }), mir));
+  s.holes.push(new THREE.Path(toV(offset(p, hole + bv), mir)));
+  if (!bv) return new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false, curveSegments: 1 });
+  const g = new THREE.ExtrudeGeometry(s, { depth: depth - 2 * bv, bevelEnabled: true, bevelThickness: bv, bevelSize: bv, bevelSegments: 4, curveSegments: 1 });
+  g.translate(0, 0, bv);
   return g;
 }
 // Gewölbtes Glas: Fächer aus Ringen, Mitte nach vorne gewölbt
@@ -89,7 +99,23 @@ function lensGeo(pts, sag, mir) {
   g.setIndex(idx); g.computeVertexNormals();
   return g;
 }
-
+// Bügel als Seitenprofil: vorne hoch, nach hinten schmaler, am Ende nach unten gebogen
+function templeGeo(h, w, Ls, Lb, withBend) {
+  const top = [], bot = [], c = [[0, 0, 0], [Ls * 0.5, 0, 0], [Ls, 0, 0]];
+  if (withBend) for (let i = 1; i <= 10; i++) { const a = i / 10 * 0.5, R = Lb / 0.5; c.push([Ls + Math.sin(a) * R, -(1 - Math.cos(a)) * R, a]); }
+  const total = c.length - 1;
+  c.forEach(([u, v, ang], i) => {
+    const f = (c[i][0] + (i > 2 ? Lb * (i - 2) / 10 : 0)) / (Ls + (withBend ? Lb : 0)), t = h * (1 - 0.45 * Math.min(1, f * 1.3)) / 2;
+    const nx = -Math.sin(ang), ny = Math.cos(ang);
+    top.push(new THREE.Vector2(u + nx * t, v + ny * t)); bot.push(new THREE.Vector2(u - nx * t, v - ny * t));
+  });
+  const s = new THREE.Shape([...top, ...bot.reverse()]);
+  const bv = Math.min(0.9, w * 0.25);
+  const g = new THREE.ExtrudeGeometry(s, { depth: w - 2 * bv, bevelEnabled: true, bevelThickness: bv, bevelSize: Math.min(0.6, h * 0.1), bevelSegments: 3, curveSegments: 1 });
+  g.translate(0, 0, bv);
+  g.rotateY(Math.PI / 2); // Profil-u -> -z, Dicke -> +x
+  return g;
+}
 // ---------- Materialien ----------
 let havanaTex = null, gradTex = null;
 function seeded(seed) { return () => (seed = (seed * 16807) % 2147483647) / 2147483647; }
@@ -154,51 +180,76 @@ function engraving() {
 }
 
 // ---------- Brille ----------
-// g: Ergebnis von sizeGlasses, shape: Form, style: {color, finish, lens}
+// g: Ergebnis von sizeGlasses, model: Modell-Schlüssel, style: {color, finish, lens}
 // Liefert die Darstellung (root), den Gesichtsschatten (shadow) und die druckbaren Teile (exp).
-export function buildGlasses(g, shape, style, opts = {}) {
-  const Z0 = 10, D1 = 1.4, D2 = 2.2, D3 = 1.4, D = D1 + D2 + D3;
-  const pts = lensOutline(shape, g.lensW, g.lensH);
+export function buildGlasses(g, model, style, opts = {}) {
+  const M = MODELS[model] || MODELS.bern;
+  const Z0 = 10, D = M.depth, D2 = 2.2, D1 = (D - D2) / 2;
+  const rs = g.rim / M.rim.side, rim = scaleRim(M.rim, rs);
+  const pts = lensOutline(model, g.lensW, g.lensH);
   const cx = g.bridge / 2 + g.lensW / 2;
-  const half = g.bridge / 2 + g.lensW + g.rim + g.e;
-  const yc = -g.lensDrop, yh = yc + g.lensH * 0.22;
+  const yc = -g.lensDrop;
+  const outer = offsetVar(pts, rim);
+  let oxMax = -Infinity, oyMax = -Infinity, oyMin = Infinity;
+  outer.forEach(q => { oxMax = Math.max(oxMax, q[0]); oyMax = Math.max(oyMax, q[1]); oyMin = Math.min(oyMin, q[1]); });
+  const yTop = yc + oyMax, half = cx + oxMax + g.e;
+  const chunky = M.bridge === "solid";
+  const endH = Math.max(7.5, M.temple.h + 2);
+  const yh = chunky ? yTop - endH / 2 : yc + g.lensH * 0.22;             // Höhe von Scharnier und Bügel
   const mat = frameMaterial(style, opts.tryOn), lmat = lensMaterial(style), mmat = metal();
-  const Lb = 28, Ls = g.templeLen - Lb;
+  const Lb = 28, Ls = g.templeLen - Lb, Lv = opts.tryOn ? Math.min(Ls, g.templeLen - 45) : Ls;
+  const epX = side => side * (cx + oxMax + g.e / 2 - 1);
+
+  // Stege
+  const bridges = (exportMode) => {
+    const parts = [], bw = g.bridge + 2 * rim.side * 0.6;
+    if (M.bridge === "solid") {
+      const bh = Math.max(6, rim.top * 1.2);
+      const b = new RoundedBoxGeometry(bw, bh, D, 4, 1.2); b.translate(0, yTop - bh / 2, Z0 + D / 2); parts.push(b);
+    } else if (M.bridge === "double") {
+      const b1 = new RoundedBoxGeometry(bw + 6, 2.2, 2.4, 3, 0.9); b1.translate(0, yTop - 1.6, Z0 + D / 2); parts.push(b1);
+      const b2 = new RoundedBoxGeometry(bw, 2.6, D * 0.8, 3, 1); b2.translate(0, yc + g.lensH * 0.18, Z0 + D / 2); parts.push(b2);
+    } else {
+      const r = M.bridge === "thin" ? 1.3 : Math.max(1.6, rim.side * 0.45), zb = Z0 + D / 2, yb = yc + g.lensH * 0.22;
+      if (exportMode) { const b = new RoundedBoxGeometry(g.bridge + 3, Math.max(2.8, r * 2), Math.min(D, r * 2.4), 3, 1); b.translate(0, yb + 1, zb); parts.push(b); }
+      else {
+        const curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(-g.bridge / 2 - 1.5, yb, zb), new THREE.Vector3(0, yb + 2.8, zb + 1), new THREE.Vector3(g.bridge / 2 + 1.5, yb, zb));
+        parts.push(new THREE.TubeGeometry(curve, 32, r, 16, false));
+      }
+    }
+    return parts;
+  };
 
   // --- Darstellung ---
   const root = new THREE.Group(), front = new THREE.Group(), lenses = new THREE.Group();
   for (const side of [-1, 1]) {
-    const rg = ring(pts, g.rim, -1.7, D, side, Math.min(0.9, g.rim * 0.25)); // Lippe überdeckt den Glasrand
-    rg.translate(side * cx, yc, Z0); front.add(new THREE.Mesh(rg, mat));
-    const lg = lensGeo(pts, 1.6, side); lg.translate(side * cx, yc, Z0 + D / 2); // Glasrand in der Nut, Mitte gewölbt
-    lenses.add(new THREE.Mesh(lg, lmat));
-    const ep = new RoundedBoxGeometry(g.e + 2, 7.5, D, 4, 1.4);
-    ep.translate(side * (cx + g.lensW / 2 + g.rim + g.e / 2 - 1), yh, Z0 + D / 2); front.add(new THREE.Mesh(ep, mat));
-    const rv = new THREE.CylinderGeometry(1.1, 1.1, 0.6, 24); rv.rotateX(Math.PI / 2);
-    rv.translate(side * (cx + g.lensW / 2 + g.rim + 1.2), yh, Z0 + D + 0.2); front.add(new THREE.Mesh(rv, mmat));
-  }
-  const br = Math.max(1.6, g.rim * 0.42), zb = Z0 + D / 2;
-  const curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(-g.bridge / 2 - 1.5, yh, zb), new THREE.Vector3(0, yh + 2.8, zb + 1.2), new THREE.Vector3(g.bridge / 2 + 1.5, yh, zb));
-  front.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 32, br, 16, false), mat));
-  const Lv = opts.tryOn ? Math.min(Ls, g.templeLen - 45) : Ls; // in der Anprobe nur bis zum Ohr
-  const temple = side => {
-    const grp = new THREE.Group();
-    const s = new RoundedBoxGeometry(3.2, 5, Lv, 3, 1.2); s.translate(side * (half - 1.6), yh, Z0 - Lv / 2);
-    grp.add(new THREE.Mesh(s, mat));
-    if (!opts.tryOn) {
-      const bg = new RoundedBoxGeometry(3.2, 4.5, Lb + 2, 3, 1.2); bg.translate(0, 0, -(Lb + 2) / 2);
-      const bm = new THREE.Mesh(bg, mat); bm.position.set(side * (half - 1.6), yh, Z0 - Ls + 1); bm.rotation.x = -0.44;
-      grp.add(bm);
+    const rg = ring(pts, rim, -1.7, D, side, Math.min(1.1, rim.side * 0.25)); rg.translate(side * cx, yc, Z0); front.add(new THREE.Mesh(rg, mat));
+    const lg = lensGeo(pts, 1.2, side); /* Glas vorne in der Nut wie bei echten Fassungen */ lg.translate(side * cx, yc, Z0 + D - 2.2); lenses.add(new THREE.Mesh(lg, lmat));
+    const ep = new RoundedBoxGeometry(g.e + 2, endH, D, 4, 1.4); ep.translate(epX(side), yh, Z0 + D / 2); front.add(new THREE.Mesh(ep, mat));
+    if (M.pins) for (const dy of [-1.7, 1.7]) {
+      const pin = new THREE.CylinderGeometry(0.75, 0.75, 0.5, 20); pin.rotateX(Math.PI / 2);
+      pin.translate(side * (cx + oxMax - rim.side * 0.45), yh + dy, Z0 + D + 0.15); front.add(new THREE.Mesh(pin, mmat));
     }
-    const hg = new THREE.CylinderGeometry(1.2, 1.2, 5.5, 20); hg.translate(side * (half - 0.4), yh, Z0 - 1.5);
-    grp.add(new THREE.Mesh(hg, mmat)); // sichtbares Scharnier
+  }
+  bridges(false).forEach(b => front.add(new THREE.Mesh(b, mat)));
+  const temple = (side, len, bend) => {
+    const grp = new THREE.Group(), w = M.temple.w;
+    const tg = templeGeo(M.temple.h, w, len, Lb, bend);
+    tg.translate(side > 0 ? half - w : -half, yh, Z0 - 0.5);
+    grp.add(new THREE.Mesh(tg, mat));
     return grp;
   };
-  root.add(front, lenses, temple(-1), temple(1));
+  const tL = temple(-1, Lv, !opts.tryOn), tR = temple(1, Lv, !opts.tryOn);
+  root.add(front, lenses, tL, tR);
+  for (const side of [-1, 1]) { // sichtbares Scharnier
+    const hg = new THREE.CylinderGeometry(1.1, 1.1, Math.min(5.5, endH - 1.5), 20); hg.translate(side * (half - M.temple.w * 0.5), yh, Z0 - 1.2);
+    root.add(new THREE.Mesh(hg, mmat));
+  }
   // Gravur «marco.» aussen auf beiden Bügeln (nur Darstellung)
   const eng = engraving();
   if (eng) for (const side of [-1, 1]) {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(3.6 * engAspect, 3.6), eng);
+    const hgt = Math.min(3.6, M.temple.h * 0.55);
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(hgt * engAspect, hgt), eng);
     m.rotation.y = side * Math.PI / 2; m.position.set(side * (half + 0.03), yh, Z0 - 24);
     root.add(m);
   }
@@ -206,7 +257,7 @@ export function buildGlasses(g, shape, style, opts = {}) {
   // --- Weicher Schatten auf dem Gesicht (nur Anprobe) ---
   const shadow = new THREE.Group();
   for (const side of [-1, 1]) for (const [o, op] of [[0.4, 0.13], [1.6, 0.08], [3, 0.05], [4.6, 0.03]]) {
-    const s = new THREE.Shape(toV(offset(pts, g.rim + o), side));
+    const s = new THREE.Shape(toV(offsetVar(pts, { side: rim.side + o, top: rim.top + o, bottom: rim.bottom + o }), side));
     s.holes.push(new THREE.Path(toV(offset(pts, Math.max(-6, -0.9 - o * 0.6)), side)));
     const sg = new THREE.ShapeGeometry(s); sg.translate(side * cx, yc - 2.2, 4);
     shadow.add(new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: op, depthWrite: false })));
@@ -215,21 +266,13 @@ export function buildGlasses(g, shape, style, opts = {}) {
   // --- Druckteile: Front mit Nut für die Gläser, Bügel ---
   const pf = new THREE.Group();
   for (const side of [-1, 1]) {
-    [[-0.9, D1, 0], [0.15, D2, D1], [-0.9, D3, D1 + D2]].forEach(([hole, dep, z]) => {
-      const geo = ring(pts, g.rim, hole, dep, side); geo.translate(side * cx, yc, Z0 + z); pf.add(new THREE.Mesh(geo));
+    [[-0.9, D1, 0], [0.15, D2, D1], [-0.9, D1, D1 + D2]].forEach(([hole, dep, z]) => {
+      const geo = ring(pts, rim, hole, dep, side); geo.translate(side * cx, yc, Z0 + z); pf.add(new THREE.Mesh(geo));
     });
-    const ep = new RoundedBoxGeometry(g.e + 2, 7.5, D, 4, 1.4);
-    ep.translate(side * (cx + g.lensW / 2 + g.rim + g.e / 2 - 1), yh, Z0 + D / 2); pf.add(new THREE.Mesh(ep));
+    const ep = new RoundedBoxGeometry(g.e + 2, endH, D, 4, 1.4); ep.translate(epX(side), yh, Z0 + D / 2); pf.add(new THREE.Mesh(ep));
   }
-  const pb = new RoundedBoxGeometry(g.bridge + 3, Math.max(3.2, br * 2), D, 3, 1); pb.translate(0, yh + 0.8, Z0 + D / 2); pf.add(new THREE.Mesh(pb));
-  const pt = side => {
-    const grp = new THREE.Group();
-    const s = new RoundedBoxGeometry(3.2, 5, Ls, 3, 1.2); s.translate(side * (half - 1.6), yh, Z0 - Ls / 2); grp.add(new THREE.Mesh(s));
-    const bg = new RoundedBoxGeometry(3.2, 4.5, Lb + 2, 3, 1.2); bg.translate(0, 0, -(Lb + 2) / 2);
-    const bm = new THREE.Mesh(bg); bm.position.set(side * (half - 1.6), yh, Z0 - Ls + 1); bm.rotation.x = -0.44; grp.add(bm);
-    return grp;
-  };
-  const exp = { front: pf, tL: pt(-1), tR: pt(1) };
+  bridges(true).forEach(b => pf.add(new THREE.Mesh(b)));
+  const exp = { front: pf, tL: temple(-1, Ls, true), tR: temple(1, Ls, true) };
   return { root, shadow, exp, half };
 }
 

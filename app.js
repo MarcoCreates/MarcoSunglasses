@@ -4,6 +4,7 @@ import { STLExporter } from "three/addons/exporters/STLExporter.js";
 import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.2.3/vision_bundle.mjs";
 import * as A from "./analysis.js";
 import * as PH from "./photo.js";
+import { MODELS } from "./models.js";
 import { makeEnvs, makeRig, applyLight, applyBackground, BACKGROUNDS, faceTriangles, makeFaceOccluder, updateFaceOccluder, makeLightProbe, sampleLight, applyProbe } from "./scene.js";
 import { buildGlasses, headOccluder, groundShadow, aspectOf, disposeGroup, FINISHES, LENSES } from "./glasses.js";
 
@@ -29,7 +30,7 @@ function go(n) {
 }
 document.querySelectorAll("[data-back]").forEach(b => b.onclick = () => go(st.step - 1));
 
-$("looks").innerHTML = Object.entries(A.LOOKS).map(([k, l]) => `<button class="opt" data-k="${k}"><b>${l.name}</b><small>${l.desc}<br>Typische Formen: ${l.shapes.map(s => A.SHAPES[s]).join(", ")}</small></button>`).join("");
+$("looks").innerHTML = Object.entries(A.LOOKS).map(([k, l]) => `<button class="opt" data-k="${k}"><b>${l.name}</b><small>${l.desc}<br>Modelle: ${l.shapes.map(s => A.SHAPES[s]).join(", ")}</small></button>`).join("");
 $("looks").onclick = e => { const b = e.target.closest(".opt"); if (!b) return; st.look = b.dataset.k; const L = A.LOOKS[st.look];
   st.color = L.color; st.finish = LOOK_STYLE[st.look].finish; st.lens = LOOK_STYLE[st.look].lens; st.shapeUser = false; st.rimUser = false;
   document.querySelectorAll("#looks .opt").forEach(x => x.classList.toggle("sel", x === b)); $("n0").disabled = false; };
@@ -163,6 +164,11 @@ function loop() {
   if (st.step === 3 && renderer) renderResult();
 }
 
+function pickModel(k, byUser) {
+  st.shape = k; st.shapeUser = !!byUser; st.rimUser = false;
+  const M = MODELS[k]; if (M) { st.finish = M.finish; st.lens = M.lens; }
+}
+
 // ---------- Ergebnis: 3D und Anprobe ----------
 let renderer, tryScene, tryCam, preScene, preCam, controls, gTry, gPre, occ, envs, tryRig, preRig, faceOcc, probe;
 const smooth = { pos: new THREE.Vector3(), quat: new THREE.Quaternion(), scale: 0, init: false };
@@ -196,7 +202,7 @@ function initRenderer() {
 
 function setupResult() {
   if (!renderer) initRenderer();
-  if (!st.shapeUser) { const rec = A.recommend(st.faceOverride || A.classify(st.m).shape, st.look); st.shape = rec.top[0].shape; }
+  if (!st.shapeUser) pickModel(A.recommend(st.faceOverride || A.classify(st.m).shape, st.look).top[0].shape);
   setView(st.view); rebuild(); panels();
 }
 function setView(v) {
@@ -232,11 +238,12 @@ function panels() {
    <table><tr><td>Länge : Breite</td><td>${R.lengthToWidth.toFixed(2)}</td></tr><tr><td>Stirn : Wangen</td><td>${R.foreheadToCheek.toFixed(2)}</td></tr>
    <tr><td>Kiefer : Wangen</td><td>${R.jawToCheek.toFixed(2)}</td></tr><tr><td>Kieferwinkel</td><td>${R.jawAngle.toFixed(0)}°</td></tr></table>
    <label class="hint">Stimmt nicht? <select id="faceSel"><option value="">automatisch (${A.FACE_SHAPES[c.shape]})</option>${Object.entries(A.FACE_SHAPES).map(([k, n]) => `<option value="${k}" ${k === st.faceOverride ? "selected" : ""}>${n}</option>`).join("")}</select></label>`;
-  $("faceSel").onchange = e => { st.faceOverride = e.target.value; st.shapeUser = false; st.shape = A.recommend(st.faceOverride || c.shape, st.look).top[0].shape; rebuild(); panels(); };
+  $("faceSel").onchange = e => { st.faceOverride = e.target.value; pickModel(A.recommend(st.faceOverride || c.shape, st.look).top[0].shape); rebuild(); panels(); };
   $("recCard").innerHTML = `<b>Vorschlag für dich</b><p class="hint" style="margin:4px 0">${rec.reason} Passend zum Look «${A.LOOKS[st.look].name}».</p>
    <div class="chips">${rec.top.map((t, i) => `<button data-k="${t.shape}" class="${t.shape === st.shape ? "sel" : ""}">${i === 0 ? "★ " : ""}${A.SHAPES[t.shape]}</button>`).join("")}</div>
-   <p class="hint" style="margin:10px 0 0">Alle Formen:</p><div class="chips">${Object.entries(A.SHAPES).map(([k, n]) => `<button data-k="${k}" class="${k === st.shape ? "sel" : ""}">${n}</button>`).join("")}</div>`;
-  $("recCard").querySelectorAll("button").forEach(b => b.onclick = () => { st.shape = b.dataset.k; st.shapeUser = true; rebuild(); panels(); });
+   <p class="hint" style="margin:10px 0 0">Ganze Kollektion:</p><div class="chips">${Object.entries(A.SHAPES).map(([k, n]) => `<button data-k="${k}" class="${k === st.shape ? "sel" : ""}">${n}</button>`).join("")}</div>`;
+  $("recCard").insertAdjacentHTML("beforeend", `<p class="hint" style="margin:10px 0 0"><b>${MODELS[st.shape].name}:</b> ${MODELS[st.shape].desc}</p>`);
+  $("recCard").querySelectorAll("button").forEach(b => { b.title = MODELS[b.dataset.k].desc; b.onclick = () => { pickModel(b.dataset.k, true); rebuild(); panels(); }; });
   const m = measures(), sz = sizes();
   $("o_pd").value = m.pd.toFixed(1); $("o_fw").value = sz.frameW.toFixed(1); $("o_br").value = sz.bridge.toFixed(1); $("o_tl").value = sz.templeLen;
 }

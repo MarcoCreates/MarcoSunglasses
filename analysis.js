@@ -1,31 +1,36 @@
 // Gesichtsvermessung, Gesichtsform und Brillenvorschlag.
 // Reine Rechenfunktionen ohne Browser-Abhängigkeit (testbar).
 
+import { MODELS } from "./models.js";
+
 export const IRIS_MM = 11.7; // durchschnittlicher Irisdurchmesser Erwachsener
 
 const R_IRIS = [469, 470, 471, 472];
 const L_IRIS = [474, 475, 476, 477];
 
 export const LOOKS = {
-  casual:   { name: "Casual",   desc: "Alltag, entspannt, zeitlos", shapes: ["wayfarer", "round", "clubmaster"], rim: 4.5, color: "#1f1f1f", tint: "#3a3a3a" },
-  business: { name: "Business", desc: "Schmal, klar, dezent",       shapes: ["rect", "clubmaster", "round"],     rim: 3.0, color: "#5b3a26", tint: "#4a4f45" },
-  festival: { name: "Festival", desc: "Gross, mutig, farbig",       shapes: ["oversize", "aviator", "round"],    rim: 6.0, color: "#e11d48", tint: "#7c3aed" }
+  casual:   { name: "Casual",   desc: "Alltag, entspannt, zeitlos", color: "#1f1f1f" },
+  business: { name: "Business", desc: "Klar, dezent, kompetent",    color: "#5b3a26" },
+  festival: { name: "Festival", desc: "Gross, mutig, farbig",       color: "#e11d48" }
 };
+for (const k of Object.keys(LOOKS)) LOOKS[k].shapes = Object.keys(MODELS).filter(m => MODELS[m].looks.includes(k));
 export const TIERS = {
   budget:   { name: "Budget",   desc: "PETG im FDM-Druck. Am günstigsten, ideal für den ersten Testdruck.", minRim: 4.0 },
   standard: { name: "Standard", desc: "Nylon PA12 im SLS-Druck. Robust und leicht flexibel, so werden auch kommerzielle 3D-Brillen gedruckt.", minRim: 2.5, tag: "Empfehlung" },
   premium:  { name: "Premium",  desc: "Nylon PA12 SLS, eingefärbt und geglättet, plus Metallscharniere (separat gekauft).", minRim: 2.5 }
 };
-export const SHAPES = { wayfarer: "Trapez", round: "Rund", clubmaster: "Browline", rect: "Rechteckig", aviator: "Pilot", oversize: "Oversize" };
+export const SHAPES = Object.fromEntries(Object.entries(MODELS).map(([k, m]) => [k, m.name]));
 export const FACE_SHAPES = { oval: "Oval", rund: "Rund", eckig: "Eckig", herz: "Herzförmig", laenglich: "Länglich" };
 
-const FACE_PREF = {
-  rund:      ["rect", "wayfarer", "clubmaster"],
-  eckig:     ["round", "aviator", "oversize"],
-  herz:      ["aviator", "round", "rect"],
-  laenglich: ["oversize", "wayfarer", "aviator"],
-  oval:      ["wayfarer", "round", "aviator", "rect", "clubmaster", "oversize"]
-};
+// Passung eines Modells zur Gesichtsform (Kontrastprinzip, nur Faustregel)
+function faceScore(M, face) {
+  const o = M.outline;
+  if (face === "rund") return (1 - M.round) * 3;
+  if (face === "eckig") return M.round * 3;
+  if (face === "herz") return (o.drop ? 2 : 0) + M.round * 1.5 + (M.rim.bottom < M.rim.top - 2 ? -1.5 : 0) + (M.rim.side < 4 ? 0.5 : 0);
+  if (face === "laenglich") return o.ar * 3 + (M.oversize ? 1 : 0);
+  return 1.5;
+}
 const FACE_REASON = {
   rund:      "Kantige Formen geben deinem eher runden Gesicht Struktur (Kontrastprinzip).",
   eckig:     "Runde, weiche Formen gleichen die markante Kieferlinie aus (Kontrastprinzip).",
@@ -109,14 +114,9 @@ export function classify(m) {
 }
 
 export function recommend(faceShape, look) {
-  const pref = FACE_PREF[faceShape], L = LOOKS[look];
-  const scored = Object.keys(SHAPES).map(s => {
-    let score = 0;
-    const i = pref.indexOf(s);
-    if (i >= 0) score += (pref.length - i) * 2 / (faceShape === "oval" ? 3 : 1);
-    const j = L.shapes.indexOf(s);
-    if (j >= 0) score += 3 + (j === 0 ? 1 : 0);
-    return { shape: s, score, faceFit: i >= 0, lookFit: j >= 0 };
+  const scored = Object.entries(MODELS).map(([k, M]) => {
+    const f = faceScore(M, faceShape), lf = M.looks.includes(look);
+    return { shape: k, score: f * 1.2 + (lf ? 3 : 0) + (M.looks[0] === look ? 0.5 : 0), faceFit: f >= 1.5, lookFit: lf };
   }).sort((a, b) => b.score - a.score);
   return { top: scored.slice(0, 3), reason: FACE_REASON[faceShape] };
 }
@@ -124,16 +124,17 @@ export function recommend(faceShape, look) {
 // Optimale Grösse für Gesicht + Form + Look
 export function sizeGlasses(m, shape, look, tier, rimOverride, aspectOf) {
   const minRim = TIERS[tier].minRim;
-  const rim = rimOverride ?? clamp(LOOKS[look].rim * Math.sqrt(m.cheek / 140), minRim, 8);
+  const M = MODELS[shape] || MODELS.bern;
+  const rim = rimOverride ?? clamp(M.rim.side * Math.sqrt(m.cheek / 140), minRim, 8);
   const e = 5;
   const bridge = clamp(m.bridgeOverride ?? 0.55 * m.intercanthal, 14, 22);
   const plausibleTemple = m.temple > m.cheek * 0.85 && m.temple < m.cheek * 1.05;
   const frameW = m.frameWOverride ?? (plausibleTemple ? m.temple : m.cheek * 0.96);
-  const rawW = (frameW - bridge - 2 * rim - 2 * e) / 2;
+  const rawW = (frameW + (M.oversize || 0) - bridge - 2 * rim - 2 * e) / 2;
   const lensW = clamp(rawW, 40, 62);
   const hShape = lensW * aspectOf(shape);
   // Grosse Formen dürfen die Brauen leicht überdecken
-  const hMax = Math.max(28, m.browGap * 2 * 0.95 * (shape === "oversize" || shape === "aviator" ? 1.15 : 1));
+  const hMax = Math.max(28, m.browGap * 2 * 0.95 * (M.oversize || M.outline.drop ? 1.15 : 1));
   const lensH = Math.min(hShape, hMax);
   const templeLen = m.templeLenOverride ?? clamp(Math.round(m.earDepth + 75), 125, 150); // Augenwinkel->Gesichtsrand + ca. 25 mm bis Ohr + ca. 50 mm Bogen hinter dem Ohr;
   return { rim, e, bridge, frameW, rawW, lensW, lensH, lensDrop: 0.05 * lensH, templeLen, framePD: bridge + lensW, limitedByBrow: hShape > hMax };
