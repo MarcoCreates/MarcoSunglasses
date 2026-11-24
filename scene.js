@@ -91,7 +91,15 @@ export function makeFaceOccluder(tris) {
 }
 export function updateFaceOccluder(m, P, W, H, biasPx) {
   const a = m.geometry.attributes.position, ez = (P[468].z + P[473].z) / 2;
-  for (let i = 0; i < 468; i++) a.setXYZ(i, P[i].x - W / 2, H / 2 - P[i].y, -(P[i].z - ez) - biasPx);
+  // Nase (Strecke Nasenwurzel 168 -> Nasenspitze 1) nicht verdecken lassen: Die Brille sitzt darauf
+  const A = P[168], B = P[1], abx = B.x - A.x, aby = B.y - A.y, abz = B.z - A.z, ab2 = abx * abx + aby * aby + abz * abz || 1;
+  const mm = biasPx / 6, R = 16 * mm;
+  for (let i = 0; i < 468; i++) {
+    const p = P[i], t = Math.max(0, Math.min(1, ((p.x - A.x) * abx + (p.y - A.y) * aby + (p.z - A.z) * abz) / ab2));
+    const d = Math.hypot(p.x - A.x - t * abx, p.y - A.y - t * aby, p.z - A.z - t * abz);
+    const extra = d < R ? 30 * mm * (1 - d / R) : 0;
+    a.setXYZ(i, p.x - W / 2, H / 2 - p.y, -(p.z - ez) - biasPx - extra);
+  }
   a.needsUpdate = true;
 }
 
