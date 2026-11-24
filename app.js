@@ -347,8 +347,10 @@ function fitInfo(sz) {
 
 function renderResult() {
   if (st.view === "3d") {
-    const v = $("view3d"), w = v.clientWidth, h = v.clientHeight;
-    if (renderer.domElement.width !== Math.floor(w * renderer.getPixelRatio())) { renderer.setSize(w, h); preCam.aspect = w / h; preCam.updateProjectionMatrix(); }
+    const v = $("view3d"), w = v.clientWidth, h = v.clientHeight, cur = renderer.getSize(new THREE.Vector2());
+    // Breite UND Höhe prüfen, sonst bleibt nach dem Wechsel von der Anprobe ein falsches Seitenverhältnis (Brille gestaucht)
+    if (cur.x !== w || cur.y !== h) renderer.setSize(w, h);
+    if (Math.abs(preCam.aspect - w / h) > 1e-3) { preCam.aspect = w / h; preCam.updateProjectionMatrix(); }
     const pr3 = Math.min(2, devicePixelRatio); if (renderer.getPixelRatio() !== pr3) renderer.setPixelRatio(pr3);
     controls.update(); renderer.toneMappingExposure = 1.05; renderer.render(preScene, preCam); return;
   }
@@ -365,7 +367,8 @@ function renderResult() {
   // Gleiche Auflösung wie die Kamera: Brille wird nicht schärfer als dein Bild
   const prWanted = Math.min(2, Math.max(0.75, W / Math.max(1, cw)));
   if (Math.abs(renderer.getPixelRatio() - prWanted) > 0.01) renderer.setPixelRatio(prWanted);
-  if (renderer.domElement.width !== Math.floor(cw * renderer.getPixelRatio()) || tryCam.right !== W / 2) {
+  const curT = renderer.getSize(new THREE.Vector2());
+  if (curT.x !== cw || curT.y !== ch || tryCam.right !== W / 2 || tryCam.top !== H / 2) {
     renderer.setSize(cw, ch); tryCam.left = -W / 2; tryCam.right = W / 2; tryCam.top = H / 2; tryCam.bottom = -H / 2; tryCam.updateProjectionMatrix();
   }
   const P = isVid ? curP : st.staticP;

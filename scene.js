@@ -1,6 +1,7 @@
 // Licht, Hintergrund, Gesichts-Verdeckung und Lichtmessung für die Darstellung.
 import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { pose } from "./analysis.js";
 
 // ---------- Umgebungen für Reflexe ----------
 export function makeEnvs(renderer) {
@@ -89,23 +90,35 @@ export function makeFaceOccluder(tris) {
   m.renderOrder = -2; m.frustumCulled = false;
   return m;
 }
+// Gesicht als unsichtbare Verdeckung. Nase und Augenpartie werden nicht entfernt, sondern nur so weit
+// nach hinten begrenzt, dass sie immer hinter Rahmen und Gläsern liegen: Sie verdecken dann weiterhin
+// den Bügel hinter dem Kopf, aber nie die Brille selbst.
 export function updateFaceOccluder(m, P, W, H, biasPx) {
-  const a = m.geometry.attributes.position, ez = (P[468].z + P[473].z) / 2;
-  // Ganze Nase (Wurzel 168 -> Spitze 1 -> Ansatz 2) nicht verdecken lassen: Die Brille liegt davor bzw. darauf
-  const mm = biasPx / 6, R = 22 * mm;
+  const a = m.geometry.attributes.position, ez = (P[468].z + P[473].z) / 2, mm = biasPx / 6;
+  const po = pose(P), Z = po.z;                                   // Blickrichtung des Kopfes (three.js-Koordinaten)
+  const ox = (P[468].x + P[473].x) / 2 - W / 2, oy = H / 2 - (P[468].y + P[473].y) / 2;
+  const R = 22 * mm, RE = 26 * mm;
   const segs = [[P[168], P[1]], [P[1], P[2]]];
   const dist = p => Math.min(...segs.map(([A, B]) => {
     const abx = B.x - A.x, aby = B.y - A.y, abz = B.z - A.z, ab2 = abx * abx + aby * aby + abz * abz || 1;
     const t = Math.max(0, Math.min(1, ((p.x - A.x) * abx + (p.y - A.y) * aby + (p.z - A.z) * abz) / ab2));
     return Math.hypot(p.x - A.x - t * abx, p.y - A.y - t * aby, p.z - A.z - t * abz);
   }));
-  const eyes = [P[468], P[473]], RE = 26 * mm;
+  const eyes = [P[468], P[473]];
   for (let i = 0; i < 468; i++) {
-    const p = P[i], d = dist(p);
-    let extra = d < 0.75 * R ? 40 * mm : d < R ? 40 * mm * (R - d) / (0.25 * R) : 0;
-    const de = Math.min(...eyes.map(c => Math.hypot(p.x - c.x, p.y - c.y)));           // Augenpartie
-    if (de < RE) extra = Math.max(extra, 30 * mm * Math.min(1, (RE - de) / (0.35 * RE)));
-    a.setXYZ(i, p.x - W / 2, H / 2 - p.y, -(p.z - ez) - biasPx - extra);
+    const p = P[i];
+    let x = p.x - W / 2, y = H / 2 - p.y, z = -(p.z - ez) - biasPx;
+    // Gewicht: 1 = mitten in Nase/Augenpartie, 0 = ausserhalb
+    const dn = dist(p), de = Math.min(...eyes.map(c => Math.hypot(p.x - c.x, p.y - c.y)));
+    const wN = dn < 0.75 * R ? 1 : dn < R ? (R - dn) / (0.25 * R) : 0;
+    const wE = de < 0.65 * RE ? 1 : de < RE ? (RE - de) / (0.35 * RE) : 0;
+    const w = Math.max(wN, wE);
+    if (w > 0) {
+      const cap = (wN >= wE ? 8 : 7) * mm;                       // höchstens 7-8 mm vor der Augenebene (Brille beginnt bei 10 mm)
+      const f = (x - ox) * Z[0] + (y - oy) * Z[1] + z * Z[2];     // Tiefe entlang der Blickrichtung
+      if (f > cap) { const d = w * (f - cap); x -= Z[0] * d; y -= Z[1] * d; z -= Z[2] * d; }
+    }
+    a.setXYZ(i, x, y, z);
   }
   a.needsUpdate = true;
 }
