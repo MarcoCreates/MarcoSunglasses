@@ -299,8 +299,9 @@ export function buildGlasses(g, model, style, opts = {}) {
   // Nur die Front ist vorgeneigt. Die Bügel drehen sich im Scharnier nach unten zum Ohr.
   const hz = Z0 - zShift, yR = yh * Math.cos(TILT) - hz * Math.sin(TILT), zR = yh * Math.sin(TILT) + hz * Math.cos(TILT);
   const earDist = Math.max(70, g.templeLen - 42);                        // Scharnier bis Ohransatz
-  const drop = (Number.isFinite(g.earDrop) ? g.earDrop : 6) + yh;          // so viel tiefer liegt der Ohransatz
-  const dropAngle = Math.min(0.32, Math.max(0.05, Math.atan2(drop, earDist)));
+  // Bügel liegt oben auf dem Ohransatz auf (ca. 5 mm über dem gemessenen Ohrpunkt)
+  const drop = (Number.isFinite(g.earDrop) ? g.earDrop - 5 : 2) + yh;      // so viel tiefer liegt die Auflage am Ohr
+  const dropAngle = Math.min(0.22, Math.max(0.03, Math.atan2(drop, earDist)));
   const hinged = grp => { const pv = new THREE.Group(); pv.position.set(0, yR, zR); grp.position.set(0, -yh, -hz); pv.add(grp); pv.rotation.x = -dropAngle; return pv; };
   const tL = temple(-1, Lv, !opts.tryOn), tR = temple(1, Lv, !opts.tryOn);
   front.rotation.x = TILT; lenses.rotation.x = TILT;

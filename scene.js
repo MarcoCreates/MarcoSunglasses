@@ -95,7 +95,7 @@ export function makeFaceOccluder(tris) {
 // den Bügel hinter dem Kopf, aber nie die Brille selbst.
 export function updateFaceOccluder(m, P, W, H, biasPx) {
   const a = m.geometry.attributes.position, ez = (P[468].z + P[473].z) / 2, mm = biasPx / 6;
-  const po = pose(P), Z = po.z;                                   // Blickrichtung des Kopfes (three.js-Koordinaten)
+  const po = pose(P), Z = po.z, X = po.x;                                   // Blickrichtung des Kopfes (three.js-Koordinaten)
   const ox = (P[468].x + P[473].x) / 2 - W / 2, oy = H / 2 - (P[468].y + P[473].y) / 2;
   const R = 22 * mm, RE = 26 * mm;
   const segs = [[P[168], P[1]], [P[1], P[2]]];
@@ -107,7 +107,12 @@ export function updateFaceOccluder(m, P, W, H, biasPx) {
   const eyes = [P[468], P[473]];
   for (let i = 0; i < 468; i++) {
     const p = P[i];
-    let x = p.x - W / 2, y = H / 2 - p.y, z = -(p.z - ez) - biasPx;
+    let x = p.x - W / 2, y = H / 2 - p.y, z = -(p.z - ez);
+    // Versatz nach hinten nur im Bereich der Front (Brauen/Wangen dürfen die Brille nicht anschneiden).
+    // Seitlich (Schläfe, Augenwinkel aussen) fast kein Versatz: dort muss das Gesicht den hinteren Bügel verdecken.
+    const lx = Math.abs((x - ox) * X[0] + (y - oy) * X[1] + z * X[2]) / (mm || 1);
+    const wb = lx < 38 ? 1 : lx > 56 ? 0 : (56 - lx) / 18;
+    z -= biasPx * (0.2 + 0.8 * wb);
     // Gewicht: 1 = mitten in Nase/Augenpartie, 0 = ausserhalb
     const dn = dist(p), de = Math.min(...eyes.map(c => Math.hypot(p.x - c.x, p.y - c.y)));
     const wN = dn < 0.75 * R ? 1 : dn < R ? (R - dn) / (0.25 * R) : 0;
